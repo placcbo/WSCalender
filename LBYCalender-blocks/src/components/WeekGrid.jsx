@@ -93,9 +93,10 @@ export default function WeekGrid({
                   >
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
-                      <strong>Hubdoc</strong>
+                      <strong>{block.shiftName || "Hubdoc"}</strong>
                       <small>{isAdmin ? `${block.totalHours}h total` : "8h block"}</small>
                       <em>{isAdmin ? `${block.remainingHours}h available` : `${block.remainingHours}h available`}</em>
+                      {!isAdmin && <em>{block.startTime} - {block.endTime}</em>}
                     </span>
                   </button>
                 );

@@ -66,12 +66,15 @@ function buildBlocks(totalHours, blockSize, startSlot) {
   return blocks;
 }
 
-function addRelease(dateKey, totalHours, blockSize, startSlot = 0) {
+function addRelease(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00") {
   const current = releaseBlocks.get(dateKey) ?? [];
   const created = buildBlocks(totalHours, blockSize, startSlot).map((block) => ({
     id: `rb-${nextBlockId++}`,
     dateKey,
     ...block,
+    shiftName,
+    startTime,
+    endTime,
   }));
   releaseBlocks.set(dateKey, current.concat(created));
   return created;
@@ -196,10 +199,10 @@ export function fetchAdminCapacitySummary(dateKeys) {
   return delay(byDate);
 }
 
-export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0) {
+export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00") {
   const normalizedTotal = Math.max(1, Number(totalHours) || 1);
   const normalizedBlockSize = Math.max(1, Number(blockSize) || 1);
-  const created = addRelease(dateKey, normalizedTotal, normalizedBlockSize, Number(startSlot) || 0);
+  const created = addRelease(dateKey, normalizedTotal, normalizedBlockSize, Number(startSlot) || 0, shiftName, startTime, endTime);
   return delay({ ok: true, created });
 }
 

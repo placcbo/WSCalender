@@ -138,9 +138,9 @@ export default function BoardPage() {
   }, []);
 
   const handleRelease = useCallback(
-    async ({ dateKey, totalHours }) => {
+    async ({ dateKey, totalHours, shiftName, startTime, endTime }) => {
       const [year, month, day] = dateKey.split("-").map(Number);
-      await releaseHours(dateKey, totalHours, totalHours, 0);
+      await releaseHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
       setActiveDate(dateKey);
       setAnchorDate(new Date(year, month - 1, day));
       setMonthCursor({ year, month: month - 1 });
