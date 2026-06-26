@@ -68,11 +68,12 @@ export default function WeekGrid({
                 const showReserved = visibleLayers.has("reserved") && block.reservedHours > 0;
                 if (!showOpen && !showReserved && !isAdmin) return null;
 
-                const isUserReserved = !isAdmin && block.remainingHours <= 0;
+                const hasMyReservation = !isAdmin && block.myHours > 0;
+                const isUserReserved = !isAdmin && (hasMyReservation || block.remainingHours <= 0);
 
                 const top = block.startSlot * ROW_HEIGHT;
                 const height = Math.max(ROW_HEIGHT, block.totalHours * ROW_HEIGHT);
-                const reservedPct = block.totalHours > 0 ? Math.min(100, (block.reservedHours / block.totalHours) * 100) : 0;
+                const reservedPct = block.totalHours > 0 ? Math.min(100, (block.myHours / block.totalHours) * 100) : 0;
                 const isSelected = pendingClaim?.blockId === block.id;
                 const isNewOpportunity = block.remainingHours > 0;
 
@@ -81,7 +82,7 @@ export default function WeekGrid({
                     key={block.id}
                     className={[
                       "calendar-capacity-block",
-                      isUserReserved ? "calendar-capacity-block--reserved" : isNewOpportunity ? "calendar-capacity-block--open" : "calendar-capacity-block--reserved",
+                      hasMyReservation ? "calendar-capacity-block--mine" : isNewOpportunity ? "calendar-capacity-block--open" : "calendar-capacity-block--reserved",
                       block.isFull && "calendar-capacity-block--full",
                       isSelected && "calendar-capacity-block--selected",
                     ]
@@ -93,52 +94,21 @@ export default function WeekGrid({
                   >
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
-                      <strong>{block.shiftName || "Hubdoc"}</strong>
-                      <small>{isAdmin ? `${block.totalHours}h total` : "8h block"}</small>
-                      <em>{isAdmin ? `${block.remainingHours}h available` : `${block.remainingHours}h available`}</em>
-                      {!isAdmin && <em>{block.startTime} - {block.endTime}</em>}
+                      <span className="calendar-capacity-title">{block.shiftName || "Hubdoc"}</span>
+                      <span className="calendar-capacity-stack">
+                        <span className="calendar-capacity-claimed">
+                          {isAdmin ? `${block.totalHours}h total` : `${block.myHours || 0}h claimed`}
+                        </span>
+                        <span className="calendar-capacity-remaining">
+                          {isAdmin ? `${block.remainingHours}h available` : `${block.remainingHours}h left`}
+                        </span>
+                      </span>
+                      {!isAdmin && <span className="calendar-capacity-times">{block.startTime} - {block.endTime}</span>}
                     </span>
+                    {!isAdmin && <span className="calendar-capacity-edge" aria-hidden="true">⋯</span>}
                   </button>
                 );
               })}
-
-              {dayInfo.blocks.flatMap((block) =>
-                block.bookings.map((booking, index) => {
-                  const isReserved = booking.status === BOOKING_STATUS.RESERVED;
-                  if (isReserved && !visibleLayers.has("reserved")) return null;
-                  if (!isReserved && !visibleLayers.has("completed")) return null;
-                  const top = (block.startSlot + index * 0.45) * ROW_HEIGHT;
-                  const height = Math.max(ROW_HEIGHT * 1.25, Math.min(booking.hours, block.totalHours) * ROW_HEIGHT);
-                  return (
-                    <div
-                      key={booking.id}
-                      className={[
-                        "calendar-booking-block",
-                        isReserved ? "calendar-booking-block--reserved" : "calendar-booking-block--completed",
-                        booking.isMine && "calendar-booking-block--mine",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      style={{ top, height }}
-                    >
-                      <strong>{booking.isMine ? "Hubdoc" : "Reserved"}</strong>
-                      <span>{booking.hours}h of Extraction Experienced</span>
-                      {booking.isMine && isReserved && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onCancelBooking(booking.id);
-                          }}
-                          aria-label="Cancel this booking"
-                        >
-                          x
-                        </button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
 
               {isAdmin &&
                 dayInfo.blocks.map((block) =>

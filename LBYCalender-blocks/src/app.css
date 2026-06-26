@@ -1227,7 +1227,7 @@
   left: 6px;
   right: 6px;
   border: 1px solid rgba(244, 239, 228, 0.34);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0;
   overflow: hidden;
   cursor: pointer;
@@ -1235,6 +1235,7 @@
   color: var(--paper);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
   z-index: 2;
+  transition: transform 0.12s ease, filter 0.12s ease;
 }
 
 .calendar-capacity-block--open {
@@ -1245,6 +1246,11 @@
 .calendar-capacity-block--reserved {
   background: rgba(71, 91, 83, 0.88);
   color: #eef6ef;
+}
+
+.calendar-capacity-block--mine {
+  background: rgba(193, 80, 46, 0.92);
+  color: #fff7ef;
 }
 
 .calendar-capacity-block--full {
@@ -1260,9 +1266,6 @@
   cursor: default;
 }
 
-.calendar-capacity-block:not(:disabled):hover {
-  filter: brightness(1.08);
-}
 
 .calendar-capacity-fill {
   position: absolute;
@@ -1278,22 +1281,60 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 9px 10px;
+  gap: 4px;
+  padding: 8px 10px 9px;
+  height: 100%;
+  justify-content: space-between;
 }
 
-.calendar-capacity-content strong,
-.calendar-booking-block strong {
-  font-size: 0.78rem;
+.calendar-capacity-title {
+  font-size: 0.74rem;
   font-weight: 700;
+  line-height: 1.1;
 }
 
-.calendar-capacity-content small,
-.calendar-capacity-content em,
+.calendar-capacity-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+}
+
+.calendar-capacity-claimed,
+.calendar-capacity-remaining,
+.calendar-capacity-times,
 .calendar-booking-block span {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-style: normal;
   font-weight: 600;
+  line-height: 1.15;
+  opacity: 0.95;
+}
+
+.calendar-capacity-claimed {
+  color: #dff7e5;
+}
+
+.calendar-capacity-remaining {
+  color: #fef2c5;
+}
+
+.calendar-capacity-times {
+  opacity: 0.78;
+}
+
+.calendar-capacity-edge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.calendar-capacity-block:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
 }
 
 .calendar-booking-block {

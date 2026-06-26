@@ -1,4 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+function getDefaultTimesForDate(dateKey) {
+  if (!dateKey) return { startTime: "08:00", endTime: "17:00" };
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getDay() === 6
+    ? { startTime: "14:00", endTime: "22:00" }
+    : { startTime: "08:00", endTime: "17:00" };
+}
 
 export default function AdminReleasePanel({
   onRelease,
@@ -11,9 +20,15 @@ export default function AdminReleasePanel({
 }) {
   const [totalHours, setTotalHours] = useState(50);
   const [shiftName, setShiftName] = useState("Extraction Experienced");
-  const [startTime, setStartTime] = useState("08:00");
-  const [endTime, setEndTime] = useState("17:00");
+  const [startTime, setStartTime] = useState(() => getDefaultTimesForDate(selectedDate).startTime);
+  const [endTime, setEndTime] = useState(() => getDefaultTimesForDate(selectedDate).endTime);
   const [emailInput, setEmailInput] = useState("");
+
+  useEffect(() => {
+    const defaults = getDefaultTimesForDate(selectedDate);
+    setStartTime(defaults.startTime);
+    setEndTime(defaults.endTime);
+  }, [selectedDate]);
 
   const handleAddEmail = () => {
     if (!emailInput.trim()) return;

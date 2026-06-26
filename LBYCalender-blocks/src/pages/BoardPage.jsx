@@ -296,8 +296,8 @@ export default function BoardPage() {
                     : "Choose how many hours to reserve from this released block."}
                 </p>
                 <div className="claim-modal-times">
-                  <span>Start: 08:00</span>
-                  <span>End: 16:00</span>
+                  <span>Start: {pendingBlock?.startTime ?? "08:00"}</span>
+                  <span>End: {pendingBlock?.endTime ?? "16:00"}</span>
                 </div>
                 <label className="claim-modal-slider">
                   <span>{pendingClaim.hours}h</span>
