@@ -84,6 +84,13 @@ export const MOCK_ACCOUNTS = [
     avatarUrl: "https://i.pravatar.cc/100?img=68",
     role: "admin",
   },
+   {
+    id: "admin-2",
+    name: "kevin Ndirangu(Admin)",
+    email: "kevin.ndirangu@labelyourdata.com",
+    // avatarUrl: "https://i.pravatar.cc/100?img=68",
+    role: "admin",
+  },
 ];
 
 const AuthContext = createContext(null);

@@ -59,7 +59,9 @@ export default function WeekGrid({
               {(isAdmin || dayInfo.blocks.length > 0) && (
                 <div className="week-grid-day-summary">
                   <strong>{isAdmin ? `${dayInfo.summary.releasedHours}h released` : "8h block"}</strong>
-                  <span>{dayInfo.summary.reservedHours}h reserved • {dayInfo.summary.remainingHours}h remaining</span>
+                  <span>
+                    {isAdmin ? `${dayInfo.summary.reservedHours}h reserved • ${dayInfo.summary.remainingHours}h remaining` : `${dayInfo.summary.reservedHours}h reserved`}
+                  </span>
                 </div>
               )}
 
@@ -102,9 +104,9 @@ export default function WeekGrid({
                         <span className="calendar-capacity-claimed">
                           {isAdmin ? `${block.totalHours}h total` : `${block.myHours || 0}h claimed`}
                         </span>
-                        <span className="calendar-capacity-remaining">
-                          {isAdmin ? `${block.remainingHours}h available` : `${block.remainingHours}h left`}
-                        </span>
+                        {!isAdmin ? null : (
+                          <span className="calendar-capacity-remaining">{block.remainingHours}h available</span>
+                        )}
                       </span>
                       {!isAdmin && <span className="calendar-capacity-times">{block.startTime} - {block.endTime}</span>}
                     </span>
