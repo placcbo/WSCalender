@@ -77,6 +77,25 @@ function addRelease(dateKey, totalHours, blockSize, startSlot = 0) {
   return created;
 }
 
+function normalizeForUserBlocks(blocks) {
+  if (!blocks.length) return [];
+  const first = blocks[0];
+  return [
+    {
+      ...first,
+      totalHours: Math.min(8, first.totalHours),
+      remainingHours: Math.min(8, Math.max(0, first.totalHours - reservedForBlock(first.id))),
+      reservedHours: reservedForBlock(first.id),
+      isFull: Math.max(0, first.totalHours - reservedForBlock(first.id)) <= 0,
+      bookings: getBlockBookings(first.id).map((booking) => ({
+        ...booking,
+        isMine: false,
+        status: BOOKING_STATUS.RESERVED,
+      })),
+    },
+  ];
+}
+
 function serializeBlock(block, currentUserId) {
   const blockBookings = getBlockBookings(block.id);
   const reservedHours = blockBookings.reduce((sum, booking) => sum + booking.hours, 0);
@@ -123,12 +142,23 @@ export function fetchDaySchedule(dateKey, currentUserId) {
   return delay((releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId)));
 }
 
-export function fetchWeekSchedule(dateKeys, currentUserId) {
+export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false) {
   const byDate = {};
   dateKeys.forEach((dateKey) => {
     const blocks = (releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId));
+    const visibleBlocks = isAdmin || !currentUserId || blocks.length === 0
+      ? blocks
+      : [
+          {
+            ...blocks[0],
+            totalHours: Math.min(8, blocks[0].totalHours),
+            remainingHours: Math.min(8, Math.max(0, blocks[0].remainingHours)),
+            reservedHours: Math.min(8, blocks[0].reservedHours),
+            isFull: Math.min(8, Math.max(0, blocks[0].remainingHours)) <= 0,
+          },
+        ];
     byDate[dateKey] = {
-      blocks,
+      blocks: visibleBlocks,
       summary: summarizeDate(dateKey),
     };
   });

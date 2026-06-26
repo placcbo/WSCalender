@@ -56,9 +56,9 @@ export default function WeekGrid({
                 <div key={row} className="week-grid-cell" style={{ height: ROW_HEIGHT }} />
               ))}
 
-              {dayInfo.summary.releasedHours > 0 && (
+              {(isAdmin || dayInfo.blocks.length > 0) && (
                 <div className="week-grid-day-summary">
-                  <strong>{isAdmin ? `${dayInfo.summary.releasedHours}h released` : `${dayInfo.summary.remainingHours}h open`}</strong>
+                  <strong>{isAdmin ? `${dayInfo.summary.releasedHours}h released` : "8h block"}</strong>
                   <span>{dayInfo.summary.reservedHours}h reserved</span>
                 </div>
               )}
@@ -67,6 +67,8 @@ export default function WeekGrid({
                 const showOpen = visibleLayers.has("open") && block.remainingHours > 0;
                 const showReserved = visibleLayers.has("reserved") && block.reservedHours > 0;
                 if (!showOpen && !showReserved && !isAdmin) return null;
+
+                const isUserReserved = !isAdmin && block.remainingHours <= 0;
 
                 const top = block.startSlot * ROW_HEIGHT;
                 const height = Math.max(ROW_HEIGHT, block.totalHours * ROW_HEIGHT);
@@ -79,7 +81,7 @@ export default function WeekGrid({
                     key={block.id}
                     className={[
                       "calendar-capacity-block",
-                      isNewOpportunity ? "calendar-capacity-block--open" : "calendar-capacity-block--reserved",
+                      isUserReserved ? "calendar-capacity-block--reserved" : isNewOpportunity ? "calendar-capacity-block--open" : "calendar-capacity-block--reserved",
                       block.isFull && "calendar-capacity-block--full",
                       isSelected && "calendar-capacity-block--selected",
                     ]
@@ -92,8 +94,8 @@ export default function WeekGrid({
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
                       <strong>Hubdoc</strong>
-                      <small>{block.totalHours}h total</small>
-                      <em>{block.remainingHours}h available</em>
+                      <small>{isAdmin ? `${block.totalHours}h total` : "8h block"}</small>
+                      <em>{isAdmin ? `${block.remainingHours}h available` : `${block.remainingHours}h available`}</em>
                     </span>
                   </button>
                 );

@@ -43,7 +43,7 @@ export default function BoardPage() {
     setLoading(true);
     const keys = await fetchWeekRange(weekAnchorDate);
     setDateKeys(keys);
-    const data = await fetchWeekSchedule(keys, user.id);
+    const data = await fetchWeekSchedule(keys, user.id, isAdmin);
     setWeekData(data);
     setSummary(await fetchUserHoursSummary(keys, user.id));
     setLoading(false);
@@ -75,7 +75,8 @@ export default function BoardPage() {
         setBanner({ kind: "error", text: `You're capped at ${MAX_HOURS_PER_DAY}h/day.` });
         return;
       }
-      setPendingClaim({ dateKey, blockId: block.id, hours: 1, maxHours });
+      const existingHours = block.myHours ?? 0;
+      setPendingClaim({ dateKey, blockId: block.id, hours: Math.min(existingHours || 1, maxHours), maxHours, existingHours });
     },
     [activeDate, committedHours, isAdmin]
   );
@@ -257,6 +258,39 @@ export default function BoardPage() {
             />
           )}
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}
+
+          {!isAdmin && pendingBlock && (
+            <div className="claim-modal-overlay" role="dialog" aria-modal="true">
+              <div className="claim-modal">
+                <div className="claim-modal-title">Claim this block</div>
+                <p className="claim-modal-sub">Choose how many hours to reserve from this released block.</p>
+                <div className="claim-modal-times">
+                  <span>Start: 08:00</span>
+                  <span>End: 16:00</span>
+                </div>
+                <label className="claim-modal-slider">
+                  <span>{pendingClaim.hours}h</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max={pendingClaim.maxHours}
+                    step="1"
+                    value={pendingClaim.hours}
+                    onChange={(event) => handlePendingHoursChange(Number(event.target.value))}
+                  />
+                  <small>Up to {pendingClaim.maxHours}h available</small>
+                </label>
+                <div className="claim-modal-actions">
+                  <button className="btn btn--ghost" onClick={handleClearPending}>
+                    Cancel
+                  </button>
+                  <button className="btn btn--teal" disabled={overBudget || submitting} onClick={handleConfirm}>
+                    {submitting ? "Reserving..." : "Confirm"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="board-week-grid-wrap">
             {loading ? (

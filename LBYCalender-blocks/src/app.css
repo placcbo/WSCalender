@@ -704,7 +704,7 @@
   display: grid;
   grid-template-columns: 64px 1fr;
   grid-template-rows: auto 1fr;
-  max-height: 640px;
+  max-height: 560px;
 }
 
 .week-grid-corner {
@@ -1119,7 +1119,7 @@
 }
 
 .week-grid--released {
-  max-height: 690px;
+  max-height: 620px;
   overflow: auto;
   background: #18221f;
 }
@@ -1332,6 +1332,76 @@
 /* ---------------------------------------------------------------------- */
 /* Week nav header                                                        */
 /* ---------------------------------------------------------------------- */
+
+.claim-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 8, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.claim-modal {
+  width: min(420px, 100%);
+  background: var(--ledger-bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+}
+
+.claim-modal-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+.claim-modal-sub {
+  margin: 0 0 14px;
+  font-size: 0.84rem;
+  color: var(--paper-dim);
+}
+
+.claim-modal-times {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 0.8rem;
+  color: var(--paper-dim);
+}
+
+.claim-modal-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.claim-modal-slider span {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.claim-modal-slider input {
+  width: 100%;
+  accent-color: var(--amber);
+}
+
+.claim-modal-slider small {
+  color: var(--paper-dim);
+  font-size: 0.74rem;
+}
+
+.claim-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 
 .week-nav {
   display: flex;
