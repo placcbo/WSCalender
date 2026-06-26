@@ -1,7 +1,16 @@
 import { MAX_HOURS_PER_DAY } from "../data/schedule";
 
-export default function TimeInsights({ reportedHours, reservedHours, releasedHours, rangeLabel, daysInRange, isAdmin }) {
-  const capacity = Math.max(isAdmin ? releasedHours : MAX_HOURS_PER_DAY * daysInRange, 1);
+export default function TimeInsights({
+  reportedHours,
+  reservedHours,
+  releasedHours,
+  rangeLabel,
+  daysInRange,
+  projectCount = 1,
+  isAdmin,
+  todayByProject = [],
+}) {
+  const capacity = Math.max(isAdmin ? releasedHours : MAX_HOURS_PER_DAY * daysInRange * projectCount, 1);
   const reportedPct = Math.min(100, (reportedHours / capacity) * 100);
   const upcomingHours = Math.max(0, reservedHours - reportedHours);
   const upcomingPct = Math.min(100 - reportedPct, (upcomingHours / capacity) * 100);
@@ -38,6 +47,20 @@ export default function TimeInsights({ reportedHours, reservedHours, releasedHou
           </div>
         )}
       </div>
+
+      {!isAdmin && todayByProject.length > 1 && (
+        <div className="time-insights-projects">
+          <span className="time-insights-projects-label">Today, by project</span>
+          {todayByProject.map(({ workType, hours }) => (
+            <div key={workType} className="time-insights-project-row">
+              <span className="time-insights-project-name">{workType}</span>
+              <span className="time-insights-project-hours">
+                {hours}/{MAX_HOURS_PER_DAY}h
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

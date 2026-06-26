@@ -1,4 +1,15 @@
 export default function Header({ user, onLogout }) {
+  // Bug fix: admin-2 (and any future account) may have no avatarUrl.
+  // Render a text-initial avatar as a safe fallback instead of a broken <img>.
+  const initials = user.name
+    ? user.name
+        .split(" ")
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase()
+    : "?";
+
   return (
     <header className="app-header">
       <div className="app-brand">
@@ -10,7 +21,13 @@ export default function Header({ user, onLogout }) {
         {user.role === "admin" && <span className="role-badge">ADMIN</span>}
       </div>
       <div className="app-identity">
-        <img src={user.avatarUrl} alt="" className="app-avatar" />
+        {user.avatarUrl ? (
+          <img src={user.avatarUrl} alt="" className="app-avatar" />
+        ) : (
+          <span className="app-avatar app-avatar--initials" aria-hidden="true">
+            {initials}
+          </span>
+        )}
         <div className="app-identity-text">
           <span className="app-identity-name">{user.name}</span>
           <span className="app-identity-email">{user.email}</span>

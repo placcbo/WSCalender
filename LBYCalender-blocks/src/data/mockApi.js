@@ -82,25 +82,6 @@ function addRelease(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "
   return created;
 }
 
-function normalizeForUserBlocks(blocks) {
-  if (!blocks.length) return [];
-  const first = blocks[0];
-  return [
-    {
-      ...first,
-      totalHours: Math.min(8, first.totalHours),
-      remainingHours: Math.min(8, Math.max(0, first.totalHours - reservedForBlock(first.id))),
-      reservedHours: reservedForBlock(first.id),
-      isFull: Math.max(0, first.totalHours - reservedForBlock(first.id)) <= 0,
-      bookings: getBlockBookings(first.id).map((booking) => ({
-        ...booking,
-        isMine: false,
-        status: BOOKING_STATUS.RESERVED,
-      })),
-    },
-  ];
-}
-
 function serializeBlock(block, currentUserId) {
   const blockBookings = getBlockBookings(block.id);
   const reservedHours = blockBookings.reduce((sum, booking) => sum + booking.hours, 0);
@@ -135,6 +116,30 @@ function summarizeDate(dateKey) {
   };
 }
 
+function blockWorkType(dateKey, blockId) {
+  const block = (releaseBlocks.get(dateKey) ?? []).find((candidate) => candidate.id === blockId);
+  return block?.workType ?? null;
+}
+
+/**
+ * Sum of a user's claimed hours on `dateKey`, scoped to bookings whose block
+ * has the given `workType`. The 8h/day cap applies per project, so a user
+ * granted both Extraction and Cooking can claim up to the cap in EACH,
+ * independently, on the same day. `excludeBookingId` lets callers exclude
+ * the booking currently being edited (for updateBookingHours).
+ */
+function userHoursForDayAndWorkType(dateKey, userId, workType, excludeBookingId = null) {
+  return bookings
+    .filter(
+      (booking) =>
+        booking.dateKey === dateKey &&
+        booking.userId === userId &&
+        booking.id !== excludeBookingId &&
+        blockWorkType(dateKey, booking.blockId) === workType
+    )
+    .reduce((sum, booking) => sum + bookingHours(booking), 0);
+}
+
 export function fetchVisibleDateRange(days = 7) {
   return delay(buildDateRange(today, days));
 }
@@ -147,24 +152,27 @@ export function fetchDaySchedule(dateKey, currentUserId) {
   return delay((releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId)));
 }
 
-export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false, userWorkType = null) {
+/**
+ * `userWorkTypes` is the array of project types this user is allowed to see
+ * (their default type(s) plus anything an admin has granted them). Admins
+ * pass null to bypass the filter entirely and see every block.
+ *
+ * FIX (Bug 1): Previously `grantedTypes.length === 0` fell through to the
+ * unfiltered path, so a user with no granted projects saw ALL blocks. Now:
+ *   - null  → no filter (admin path)
+ *   - []    → show nothing (user with no granted projects)
+ *   - [..] → show only matching blocks
+ */
+export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false, userWorkTypes = null) {
   const byDate = {};
+  // null means "admin / no filter"; anything else (including []) filters.
+  const grantedTypes = isAdmin ? null : (Array.isArray(userWorkTypes) ? userWorkTypes : null);
   dateKeys.forEach((dateKey) => {
     const blocks = (releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId));
-    const filteredBlocks = (isAdmin || !userWorkType)
-      ? blocks
-      : blocks.filter((block) => block.workType === userWorkType);
-    const visibleBlocks = isAdmin || !currentUserId || filteredBlocks.length === 0
-      ? filteredBlocks
-      : [
-          {
-            ...filteredBlocks[0],
-            totalHours: Math.min(8, filteredBlocks[0].totalHours),
-            remainingHours: Math.min(8, Math.max(0, filteredBlocks[0].remainingHours)),
-            reservedHours: Math.min(8, filteredBlocks[0].reservedHours),
-            isFull: Math.min(8, Math.max(0, filteredBlocks[0].remainingHours)) <= 0,
-          },
-        ];
+    const visibleBlocks =
+      grantedTypes === null
+        ? blocks
+        : blocks.filter((block) => grantedTypes.includes(block.workType));
     byDate[dateKey] = {
       blocks: visibleBlocks,
       summary: summarizeDate(dateKey),
@@ -173,9 +181,14 @@ export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false, user
   return delay(byDate);
 }
 
-export function fetchUserHoursForDay(dateKey, userId) {
+export function fetchUserHoursForDay(dateKey, userId, workType = null) {
   const total = bookings
-    .filter((booking) => booking.dateKey === dateKey && booking.userId === userId)
+    .filter(
+      (booking) =>
+        booking.dateKey === dateKey &&
+        booking.userId === userId &&
+        (workType == null || blockWorkType(dateKey, booking.blockId) === workType)
+    )
     .reduce((sum, booking) => sum + bookingHours(booking), 0);
   return delay(total);
 }
@@ -211,37 +224,39 @@ export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0, shif
   return delay({ ok: true, created });
 }
 
-export function adjustReleasedHours(dateKey, totalHours, blockSize = 8, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00", workType = "Extraction") {
-  const existing = releaseBlocks.get(dateKey) ?? [];
-  const normalizedTotal = Math.max(1, Number(totalHours) || 1);
-  const normalizedBlockSize = Math.max(1, Number(blockSize) || 1);
-  const existingReserved = existing.reduce((sum, block) => sum + reservedForBlock(block.id), 0);
-  const nextTotal = Math.max(0, normalizedTotal);
-  const delta = nextTotal - existing.reduce((sum, block) => sum + block.totalHours, 0);
-
-  if (delta === 0) {
-    return delay({ ok: true, created: [], updated: existing });
-  }
-
-  if (delta < 0) {
-    const removable = Math.min(existingReserved, Math.abs(delta));
-    if (removable > 0) {
-      return delay({ ok: false, error: "Can't reduce released hours while there are active reservations." });
-    }
-  }
-
+/**
+ * Adjust a SINGLE existing block's total hours (identified by `blockId`).
+ * Only touches the one block; every other block for that day (any project)
+ * is left untouched.
+ */
+export function adjustReleasedHours(dateKey, blockId, totalHours, shiftName, startTime, endTime, workType) {
   const current = releaseBlocks.get(dateKey) ?? [];
-  const currentTotal = current.reduce((sum, block) => sum + block.totalHours, 0);
-  const newBlocks = [];
-  if (currentTotal > 0) {
-    current.forEach((block) => {
-      newBlocks.push({ ...block, totalHours: block.totalHours });
+  const target = current.find((block) => block.id === blockId);
+  if (!target) return delay({ ok: false, error: "Block not found." });
+
+  const normalizedTotal = Math.max(1, Number(totalHours) || 1);
+  const reserved = reservedForBlock(target.id);
+  if (normalizedTotal < reserved) {
+    return delay({
+      ok: false,
+      error: `Can't reduce below ${reserved}h — that's already claimed on this block.`,
     });
   }
 
-  releaseBlocks.set(dateKey, []);
-  const created = addRelease(dateKey, nextTotal, normalizedBlockSize, Number(startSlot) || 0, shiftName, startTime, endTime, workType);
-  return delay({ ok: true, created, updated: created });
+  const updatedBlock = {
+    ...target,
+    totalHours: normalizedTotal,
+    blockSize: normalizedTotal,
+    shiftName: shiftName ?? target.shiftName,
+    startTime: startTime ?? target.startTime,
+    endTime: endTime ?? target.endTime,
+    workType: workType ?? target.workType,
+  };
+  releaseBlocks.set(
+    dateKey,
+    current.map((block) => (block.id === blockId ? updatedBlock : block))
+  );
+  return delay({ ok: true, updated: updatedBlock });
 }
 
 export function revokeBlock(dateKey, blockId) {
@@ -266,13 +281,13 @@ export function reserveHours(dateKey, blockId, hours, userId, maxHoursPerDay) {
     return delay({ ok: false, error: `Only ${remainingHours}h remain in this block.` });
   }
 
-  const existingForUser = bookings
-    .filter((booking) => booking.dateKey === dateKey && booking.userId === userId)
-    .reduce((sum, booking) => sum + bookingHours(booking), 0);
-  if (existingForUser + claimHours > maxHoursPerDay) {
+  // Cap is per project (workType), not combined across every project the
+  // user has access to — e.g. 8h Extraction + 8h Cooking is allowed.
+  const existingForUserInProject = userHoursForDayAndWorkType(dateKey, userId, block.workType);
+  if (existingForUserInProject + claimHours > maxHoursPerDay) {
     return delay({
       ok: false,
-      error: `That would put you at ${existingForUser + claimHours} hours; the max is ${maxHoursPerDay}/day.`,
+      error: `That would put you at ${existingForUserInProject + claimHours}h of ${block.workType} today; the max is ${maxHoursPerDay}h/day per project.`,
     });
   }
 
@@ -304,9 +319,9 @@ export function updateBookingHours(bookingId, hours, userId, maxHoursPerDay = MA
 
   const block = (releaseBlocks.get(target.dateKey) ?? []).find((candidate) => candidate.id === target.blockId);
   const otherBookingsOnBlock = bookings.filter((booking) => booking.dateKey === target.dateKey && booking.blockId === target.blockId && booking.id !== bookingId);
-  const otherUserHoursOnDay = bookings.filter((booking) => booking.dateKey === target.dateKey && booking.userId === userId && booking.id !== bookingId).reduce((sum, booking) => sum + bookingHours(booking), 0);
+  const otherUserHoursOnDayInProject = userHoursForDayAndWorkType(target.dateKey, userId, block?.workType, bookingId);
   const blockCapacityRemaining = block ? Math.max(0, block.totalHours - otherBookingsOnBlock.reduce((sum, booking) => sum + bookingHours(booking), 0)) : Number.POSITIVE_INFINITY;
-  const dailyCapacityRemaining = Math.max(0, maxHoursPerDay - otherUserHoursOnDay);
+  const dailyCapacityRemaining = Math.max(0, maxHoursPerDay - otherUserHoursOnDayInProject);
   const maxAllowedHours = Math.min(blockCapacityRemaining, dailyCapacityRemaining);
 
   if (normalizedHours > maxAllowedHours) {

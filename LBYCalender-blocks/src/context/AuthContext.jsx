@@ -8,25 +8,41 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo } 
 // with the Go backend for a session instead of picking from MOCK_ACCOUNTS.
 // The shape of `user` (id, name, email, avatarUrl, role) is kept identical
 // so nothing downstream needs to change.
+//
+// Work-type access: every account has a `defaultWorkTypes` array (the
+// project(s) they start with). Admins can grant ADDITIONAL work types to any
+// user for any project — e.g. a normally Extraction-only worker can be
+// granted Cooking access too, and from then on sees + can claim blocks from
+// both projects, each with its own independent 8h/day cap. Grants are stored
+// as { workType: [emails...] } so this generalizes to any number of projects,
+// not just "Extraction".
 // ---------------------------------------------------------------------------
 
-const EXTRACTION_VIEWER_STORAGE_KEY = "workstream-extraction-viewers";
+const WORK_TYPE_ACCESS_STORAGE_KEY = "workstream-work-type-access";
 
 function normalizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
-function readStoredViewerEmails() {
-  if (typeof window === "undefined") return [];
+function readStoredAccessGrants() {
+  if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(EXTRACTION_VIEWER_STORAGE_KEY);
-    if (!raw) return [];
+    const raw = window.localStorage.getItem(WORK_TYPE_ACCESS_STORAGE_KEY);
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(Boolean).map(normalizeEmail) : [];
+    if (!parsed || typeof parsed !== "object") return {};
+    // shape: { [workType]: string[] (normalized emails) }
+    const out = {};
+    Object.entries(parsed).forEach(([workType, emails]) => {
+      if (Array.isArray(emails)) out[workType] = emails.filter(Boolean).map(normalizeEmail);
+    });
+    return out;
   } catch {
-    return [];
+    return {};
   }
 }
+
+export const WORK_TYPES = ["Extraction", "Cooking"];
 
 export const MOCK_ACCOUNTS = [
   {
@@ -35,7 +51,7 @@ export const MOCK_ACCOUNTS = [
     email: "amina.njeri@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=47",
     role: "user",
-    workType: "Extraction",
+    defaultWorkTypes: ["Extraction"],
   },
   {
     id: "demo-user-2",
@@ -43,7 +59,7 @@ export const MOCK_ACCOUNTS = [
     email: "kipkoech.otieno@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=12",
     role: "user",
-    workType: "Cooking",
+    defaultWorkTypes: ["Cooking"],
   },
   {
     id: "demo-user-3",
@@ -51,7 +67,7 @@ export const MOCK_ACCOUNTS = [
     email: "wanjiku.muiruri@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=32",
     role: "user",
-    workType: "Extraction",
+    defaultWorkTypes: ["Extraction"],
   },
   {
     id: "demo-user-4",
@@ -59,7 +75,7 @@ export const MOCK_ACCOUNTS = [
     email: "mwangi.kamau@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=56",
     role: "user",
-    workType: "Cooking",
+    defaultWorkTypes: ["Cooking"],
   },
   {
     id: "demo-user-5",
@@ -67,7 +83,7 @@ export const MOCK_ACCOUNTS = [
     email: "nadia.akinyi@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=15",
     role: "user",
-    workType: "Extraction",
+    defaultWorkTypes: ["Extraction"],
   },
   {
     id: "demo-user-6",
@@ -75,7 +91,7 @@ export const MOCK_ACCOUNTS = [
     email: "daniel.mutua@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=24",
     role: "user",
-    workType: "Cooking",
+    defaultWorkTypes: ["Cooking"],
   },
   {
     id: "admin-1",
@@ -84,11 +100,10 @@ export const MOCK_ACCOUNTS = [
     avatarUrl: "https://i.pravatar.cc/100?img=68",
     role: "admin",
   },
-   {
+  {
     id: "admin-2",
-    name: "kevin Ndirangu(Admin)",
+    name: "Kevin Ndirangu (Admin)",
     email: "kevin.ndirangu@labelyourdata.com",
-    // avatarUrl: "https://i.pravatar.cc/100?img=68",
     role: "admin",
   },
 ];
@@ -98,42 +113,60 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [extractionViewerEmails, setExtractionViewerEmails] = useState(() => readStoredViewerEmails());
+  // { [workType]: string[] of normalized emails granted EXTRA access to that workType }
+  const [workTypeAccess, setWorkTypeAccess] = useState(() => readStoredAccessGrants());
 
-  const resolveEffectiveWorkType = useCallback(
-    (email, fallbackWorkType) => {
-      if (!email) return fallbackWorkType;
-      const normalizedEmail = normalizeEmail(email);
-      return extractionViewerEmails.includes(normalizedEmail) ? "Extraction" : fallbackWorkType;
+  const resolveGrantedWorkTypes = useCallback(
+    (email, defaultWorkTypes = []) => {
+      const normalizedEmail = email ? normalizeEmail(email) : null;
+      const granted = new Set(defaultWorkTypes);
+      if (normalizedEmail) {
+        Object.entries(workTypeAccess).forEach(([workType, emails]) => {
+          if (emails.includes(normalizedEmail)) granted.add(workType);
+        });
+      }
+      return Array.from(granted);
     },
-    [extractionViewerEmails]
+    [workTypeAccess]
   );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(EXTRACTION_VIEWER_STORAGE_KEY, JSON.stringify(extractionViewerEmails));
+      window.localStorage.setItem(WORK_TYPE_ACCESS_STORAGE_KEY, JSON.stringify(workTypeAccess));
     }
-  }, [extractionViewerEmails]);
+  }, [workTypeAccess]);
 
   useEffect(() => {
     if (!user?.email) return;
     setUser((current) => {
       if (!current) return current;
-      const nextEffectiveWorkType = resolveEffectiveWorkType(current.email, current.workType);
-      if (nextEffectiveWorkType === current.effectiveWorkType) return current;
-      return { ...current, effectiveWorkType: nextEffectiveWorkType };
+      const nextGranted = resolveGrantedWorkTypes(current.email, current.defaultWorkTypes);
+      const sameLength = nextGranted.length === current.grantedWorkTypes?.length;
+      const sameSet = sameLength && nextGranted.every((wt) => current.grantedWorkTypes.includes(wt));
+      if (sameSet) return current;
+      return { ...current, grantedWorkTypes: nextGranted };
     });
-  }, [resolveEffectiveWorkType, user?.email]);
+  }, [resolveGrantedWorkTypes, user?.email]);
 
-  const addExtractionViewerEmail = useCallback((email) => {
+  /** Grant a user (by email) access to an additional work type/project. */
+  const grantWorkTypeAccess = useCallback((email, workType) => {
     const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) return;
-    setExtractionViewerEmails((current) => (current.includes(normalizedEmail) ? current : [...current, normalizedEmail]));
+    if (!normalizedEmail || !workType) return;
+    setWorkTypeAccess((current) => {
+      const existing = current[workType] ?? [];
+      if (existing.includes(normalizedEmail)) return current;
+      return { ...current, [workType]: [...existing, normalizedEmail] };
+    });
   }, []);
 
-  const removeExtractionViewerEmail = useCallback((email) => {
+  /** Revoke a previously granted (extra) work type from a user. */
+  const revokeWorkTypeAccess = useCallback((email, workType) => {
     const normalizedEmail = normalizeEmail(email);
-    setExtractionViewerEmails((current) => current.filter((entry) => entry !== normalizedEmail));
+    setWorkTypeAccess((current) => {
+      const existing = current[workType] ?? [];
+      if (!existing.includes(normalizedEmail)) return current;
+      return { ...current, [workType]: existing.filter((entry) => entry !== normalizedEmail) };
+    });
   }, []);
 
   const login = useCallback(
@@ -145,7 +178,7 @@ export function AuthProvider({ children }) {
           const resolvedAccount = account
             ? {
                 ...account,
-                effectiveWorkType: resolveEffectiveWorkType(account.email, account.workType),
+                grantedWorkTypes: resolveGrantedWorkTypes(account.email, account.defaultWorkTypes),
               }
             : null;
           setUser(resolvedAccount);
@@ -154,22 +187,24 @@ export function AuthProvider({ children }) {
         }, 350);
       });
     },
-    [resolveEffectiveWorkType]
+    [resolveGrantedWorkTypes]
   );
 
   const logout = useCallback(() => setUser(null), []);
 
   const value = useMemo(
     () => ({
-      user: user ? { ...user, effectiveWorkType: resolveEffectiveWorkType(user.email, user.workType) } : null,
+      user: user
+        ? { ...user, grantedWorkTypes: resolveGrantedWorkTypes(user.email, user.defaultWorkTypes) }
+        : null,
       isAuthenticating,
       login,
       logout,
-      extractionViewerEmails,
-      addExtractionViewerEmail,
-      removeExtractionViewerEmail,
+      workTypeAccess,
+      grantWorkTypeAccess,
+      revokeWorkTypeAccess,
     }),
-    [user, isAuthenticating, login, logout, resolveEffectiveWorkType, extractionViewerEmails, addExtractionViewerEmail, removeExtractionViewerEmail]
+    [user, isAuthenticating, login, logout, resolveGrantedWorkTypes, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

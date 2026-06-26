@@ -93,12 +93,16 @@ export default function WeekGrid({
                       .filter(Boolean)
                       .join(" ")}
                     style={{ top, height }}
+                    data-work-type={block.workType}
                     disabled={disabled || (!isAdmin && (!block.myHours && block.remainingHours <= 0))}
                     onClick={() => onSelectBlock(dateKey, block)}
                   >
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
-                      <span className="calendar-capacity-title">{block.shiftName || "Hubdoc"}</span>
+                      <span className="calendar-capacity-title-row">
+                        <span className="calendar-capacity-title">{block.shiftName || "Hubdoc"}</span>
+                        {block.workType && <span className="calendar-capacity-project-chip">{block.workType}</span>}
+                      </span>
                       {isAdmin && <span className="calendar-capacity-admin-hint">Tap to reduce</span>}
                       <span className="calendar-capacity-stack">
                         <span className="calendar-capacity-claimed">

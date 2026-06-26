@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
   cancelBooking,
@@ -24,10 +24,26 @@ import HourGauge from "../components/HourGauge";
 const todayDate = new Date();
 const todayKey = toDateKey(todayDate);
 
+// Persist admin-created custom project names across page sessions
+const CUSTOM_WORK_TYPES_KEY = "workstream-custom-work-types";
+function readCustomWorkTypes() {
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_WORK_TYPES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function BoardPage() {
-  const { user, logout, extractionViewerEmails, addExtractionViewerEmail, removeExtractionViewerEmail } = useAuth();
+  const { user, logout, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess } = useAuth();
   const isAdmin = user.role === "admin";
-  const effectiveWorkType = user?.effectiveWorkType ?? user?.workType ?? null;
+  // Bug fix (Bug 2): admins have no defaultWorkTypes so grantedWorkTypes is
+  // undefined → was passed as [] to fetchWeekSchedule, which (after fixing
+  // Bug 1) would now show nothing. Pass null explicitly for admins so the API
+  // skips filtering entirely.
+  const grantedWorkTypes = isAdmin ? null : (user?.grantedWorkTypes ?? []);
 
   const [anchorDate, setAnchorDate] = useState(todayDate);
   const [monthCursor, setMonthCursor] = useState({ year: todayDate.getFullYear(), month: todayDate.getMonth() });
@@ -37,12 +53,43 @@ export default function BoardPage() {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [adminAdjustTarget, setAdminAdjustTarget] = useState(null);
   const [activeDate, setActiveDate] = useState(todayKey);
-  const [committedHours, setCommittedHours] = useState(0);
+  const [committedHoursByWorkType, setCommittedHoursByWorkType] = useState({});
   const [summary, setSummary] = useState({ reportedHours: 0, reservedHours: 0 });
   const [visibleLayers, setVisibleLayers] = useState(new Set(["reserved", "completed", "open"]));
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState(null);
+  // Admin-created project names beyond the built-in WORK_TYPES
+  const [customWorkTypes, setCustomWorkTypes] = useState(readCustomWorkTypes);
+
+  // Bug fix (Bug 3): clear admin modal state whenever the logged-in user
+  // changes (e.g. admin-1 logs out and admin-2 logs in in the same tab).
+  const prevUserId = useRef(user?.id);
+  useEffect(() => {
+    if (prevUserId.current !== user?.id) {
+      prevUserId.current = user?.id;
+      setAdminAdjustTarget(null);
+      setPendingClaim(null);
+      setCancelConfirmOpen(false);
+      setBanner(null);
+    }
+  }, [user?.id]);
+
+  const handleAddWorkType = useCallback((name) => {
+    setCustomWorkTypes((prev) => {
+      if (prev.includes(name)) return prev;
+      const next = [...prev, name];
+      try { window.localStorage.setItem(CUSTOM_WORK_TYPES_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Bug fix (Bug 5): grantedWorkTypes is an array — a new array reference on
+  // every render caused loadWeek to be recreated every render, which triggered
+  // the useEffect below on every render (infinite loop). We stabilise it with
+  // a ref so the callback only sees the latest value without it being a dep.
+  const grantedWorkTypesRef = useRef(grantedWorkTypes);
+  useEffect(() => { grantedWorkTypesRef.current = grantedWorkTypes; }, [grantedWorkTypes]);
 
   const loadWeek = useCallback(async (weekAnchorDate = anchorDate, showSpinner = false) => {
     if (showSpinner) {
@@ -50,22 +97,33 @@ export default function BoardPage() {
     }
     const keys = await fetchWeekRange(weekAnchorDate);
     setDateKeys(keys);
-    const data = await fetchWeekSchedule(keys, user?.id ?? "", isAdmin, effectiveWorkType);
+    const data = await fetchWeekSchedule(keys, user?.id ?? "", isAdmin, grantedWorkTypesRef.current);
     setWeekData(data);
     setSummary(await fetchUserHoursSummary(keys, user?.id ?? ""));
     setLoading(false);
-  }, [anchorDate, user?.id, isAdmin, effectiveWorkType]);
+  }, [anchorDate, user?.id, isAdmin]); // grantedWorkTypes accessed via ref — no array dep
 
   useEffect(() => {
     loadWeek(anchorDate, true);
   }, [anchorDate, loadWeek]);
 
+  /** Committed hours for `activeDate`, scoped per project — refetched whenever the visible week data changes. */
   useEffect(() => {
-    fetchUserHoursForDay(activeDate, user?.id ?? "").then(setCommittedHours);
-  }, [activeDate, user?.id, weekData]);
+    if (isAdmin || !grantedWorkTypes || grantedWorkTypes.length === 0) return;
+    Promise.all(
+      grantedWorkTypes.map((workType) =>
+        fetchUserHoursForDay(activeDate, user?.id ?? "", workType).then((hours) => [workType, hours])
+      )
+    ).then((entries) => setCommittedHoursByWorkType(Object.fromEntries(entries)));
+  }, [activeDate, user?.id, weekData, isAdmin, grantedWorkTypes]);
+
+  const committedHoursForWorkType = useCallback(
+    (workType) => committedHoursByWorkType[workType] ?? 0,
+    [committedHoursByWorkType]
+  );
 
   const pendingHours = pendingClaim?.dateKey === activeDate && pendingClaim?.mode !== "adjust" ? pendingClaim.hours : 0;
-  const overBudget = pendingClaim?.mode !== "adjust" && committedHours + pendingHours > MAX_HOURS_PER_DAY;
+  const overBudget = pendingClaim?.mode !== "adjust" && pendingClaim != null && pendingHours > pendingClaim.maxHours;
   const isAdjustingToZero = pendingClaim?.mode === "adjust" && pendingClaim.hours === 0;
   const pendingBlock = useMemo(() => {
     if (!pendingClaim) return null;
@@ -73,7 +131,7 @@ export default function BoardPage() {
   }, [pendingClaim, weekData]);
 
   const handleSelectBlock = useCallback(
-    (dateKey, block) => {
+    async (dateKey, block) => {
       if (isAdmin) {
         setAdminAdjustTarget({
           dateKey,
@@ -81,19 +139,24 @@ export default function BoardPage() {
           currentHours: block.totalHours,
           reservedHours: block.reservedHours ?? 0,
           targetHours: block.totalHours,
-          shiftName: block.shiftName ?? "Extraction Experienced",
+          shiftName: block.shiftName ?? block.workType ?? "Shift",
           startTime: block.startTime ?? "08:00",
           endTime: block.endTime ?? "17:00",
+          workType: block.workType,
         });
         setActiveDate(dateKey);
         return;
       }
       setBanner(null);
       setActiveDate(dateKey);
+      // Fetch fresh rather than trust cached committedHoursByWorkType, which
+      // may not yet reflect `dateKey` or `block.workType` if this is the
+      // first click after navigating to a new date/project.
+      const committedForProject = await fetchUserHoursForDay(dateKey, user?.id ?? "", block.workType);
       const existingHours = block.myHours ?? 0;
       if (existingHours > 0) {
         const availableForThisBooking = Math.max(existingHours, (block.remainingHours ?? 0) + existingHours);
-        const dailyAllowance = Math.max(existingHours, MAX_HOURS_PER_DAY - Math.max(0, committedHours - existingHours));
+        const dailyAllowance = Math.max(existingHours, MAX_HOURS_PER_DAY - Math.max(0, committedForProject - existingHours));
         const maxHours = Math.min(availableForThisBooking, dailyAllowance);
         setPendingClaim({
           dateKey,
@@ -103,19 +166,27 @@ export default function BoardPage() {
           existingHours,
           mode: "adjust",
           bookingId: block.bookings?.find((booking) => booking.isMine)?.id ?? null,
+          workType: block.workType,
         });
         return;
       }
       if (block.isFull) return;
-      const committedForThisDay = dateKey === activeDate ? committedHours : 0;
-      const maxHours = Math.min(block.remainingHours, MAX_HOURS_PER_DAY - committedForThisDay);
+      const maxHours = Math.min(block.remainingHours, MAX_HOURS_PER_DAY - committedForProject);
       if (maxHours <= 0) {
-        setBanner({ kind: "error", text: `You're capped at ${MAX_HOURS_PER_DAY}h/day.` });
+        setBanner({ kind: "error", text: `You're capped at ${MAX_HOURS_PER_DAY}h/day for ${block.workType}.` });
         return;
       }
-      setPendingClaim({ dateKey, blockId: block.id, hours: Math.min(1, maxHours), maxHours, existingHours, mode: "reserve" });
+      setPendingClaim({
+        dateKey,
+        blockId: block.id,
+        hours: Math.min(1, maxHours),
+        maxHours,
+        existingHours,
+        mode: "reserve",
+        workType: block.workType,
+      });
     },
-    [activeDate, committedHours, isAdmin]
+    [isAdmin, user?.id]
   );
 
   const handlePendingHoursChange = useCallback((hours) => {
@@ -177,12 +248,12 @@ export default function BoardPage() {
     setBanner(null);
     const res = await adjustReleasedHours(
       adminAdjustTarget.dateKey,
+      adminAdjustTarget.blockId,
       adminAdjustTarget.targetHours,
-      adminAdjustTarget.targetHours,
-      0,
       adminAdjustTarget.shiftName,
       adminAdjustTarget.startTime,
-      adminAdjustTarget.endTime
+      adminAdjustTarget.endTime,
+      adminAdjustTarget.workType
     );
     setSubmitting(false);
     if (!res.ok) {
@@ -209,6 +280,7 @@ export default function BoardPage() {
     loadWeek(new Date(pendingClaim.dateKey));
   }, [loadWeek, pendingClaim, user?.id]);
 
+  // Bug fix (Bug 6): anchorDate was used inside but missing from dep array.
   const handleCancelBooking = useCallback(
     async (bookingId) => {
       setSubmitting(true);
@@ -217,16 +289,17 @@ export default function BoardPage() {
       setBanner(res.ok ? { kind: "success", text: "Booking cancelled." } : { kind: "error", text: res.error });
       if (res.ok) loadWeek(anchorDate);
     },
-    [loadWeek, user?.id]
+    [loadWeek, user?.id, anchorDate]
   );
 
+  // Bug fix (Bug 7): anchorDate was used inside but missing from dep array.
   const handleRevokeBlock = useCallback(
     async (dateKey, blockId) => {
       const res = await revokeBlock(dateKey, blockId);
       setBanner(res.ok ? { kind: "success", text: "Released block removed." } : { kind: "error", text: res.error });
       if (res.ok) loadWeek(anchorDate);
     },
-    [loadWeek]
+    [loadWeek, anchorDate]
   );
 
   const handleDateChange = useCallback((dateKey) => {
@@ -237,21 +310,13 @@ export default function BoardPage() {
   }, []);
 
   const handleRelease = useCallback(
-    async ({ dateKey, totalHours, shiftName, startTime, endTime, mode = "release" }) => {
+    async ({ dateKey, totalHours, shiftName, startTime, endTime, workType }) => {
       const [year, month, day] = dateKey.split("-").map(Number);
-      if (mode === "adjust") {
-        await adjustReleasedHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
-        setBanner({
-          kind: "success",
-          text: `Updated released capacity to ${totalHours}h on ${formatDateHeading(dateKey)}.`,
-        });
-      } else {
-        await releaseHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
-        setBanner({
-          kind: "success",
-          text: `Released ${totalHours}h capacity on ${formatDateHeading(dateKey)}.`,
-        });
-      }
+      await releaseHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime, workType);
+      setBanner({
+        kind: "success",
+        text: `Released ${totalHours}h of ${workType} capacity on ${formatDateHeading(dateKey)}.`,
+      });
       setActiveDate(dateKey);
       setAnchorDate(new Date(year, month - 1, day));
       setMonthCursor({ year, month: month - 1 });
@@ -311,6 +376,16 @@ export default function BoardPage() {
   const weekHeading = midWeekDate ? formatMonthHeading(midWeekDate.getFullYear(), midWeekDate.getMonth()) : "";
   const rangeLabel = dateKeys.length === 7 ? `${formatDateHeading(dateKeys[0])} - ${formatDateHeading(dateKeys[6])}` : "";
 
+  // Max hours ceiling for the admin adjust slider — generous enough to let
+  // admins increase a block, not just decrease it. We allow up to 3× the
+  // current total or 200h, whichever is lower.
+  const adminAdjustMax = adminAdjustTarget
+    ? Math.min(200, Math.max(adminAdjustTarget.currentHours * 3, adminAdjustTarget.currentHours + 50))
+    : 200;
+
+  // For the HourGauge: sum committed hours across all projects for the active date.
+  const totalCommittedForActiveDate = Object.values(committedHoursByWorkType).reduce((a, b) => a + b, 0);
+
   return (
     <div className="board-page">
       <Header user={user} onLogout={logout} />
@@ -327,13 +402,24 @@ export default function BoardPage() {
             todayKey={todayKey}
           />
           <CalendarLayers visibleLayers={visibleLayers} onToggle={handleToggleLayer} />
+          {!isAdmin && (
+            <HourGauge
+              committedHours={totalCommittedForActiveDate}
+              pendingHours={pendingHours}
+            />
+          )}
           <TimeInsights
             reportedHours={summary.reportedHours}
             reservedHours={summary.reservedHours}
             releasedHours={dateKeys.reduce((sum, key) => sum + (weekData[key]?.summary.releasedHours ?? 0), 0)}
             rangeLabel={rangeLabel}
             daysInRange={7}
+            projectCount={Math.max(1, grantedWorkTypes?.length ?? 1)}
             isAdmin={isAdmin}
+            todayByProject={(grantedWorkTypes ?? []).map((workType) => ({
+              workType,
+              hours: committedHoursForWorkType(workType),
+            }))}
           />
         </aside>
 
@@ -362,37 +448,41 @@ export default function BoardPage() {
               disabled={loading || submitting}
               selectedDate={activeDate}
               onDateChange={handleDateChange}
-              visibleEmails={extractionViewerEmails}
-              onAddEmail={addExtractionViewerEmail}
-              onRemoveEmail={removeExtractionViewerEmail}
-              existingHours={weekData[activeDate]?.summary.releasedHours ?? 0}
-              existingShiftName={weekData[activeDate]?.blocks?.[0]?.shiftName ?? ""}
-              existingStartTime={weekData[activeDate]?.blocks?.[0]?.startTime ?? "08:00"}
-              existingEndTime={weekData[activeDate]?.blocks?.[0]?.endTime ?? "17:00"}
+              workTypeAccess={workTypeAccess}
+              onGrantAccess={grantWorkTypeAccess}
+              onRevokeAccess={revokeWorkTypeAccess}
+              customWorkTypes={customWorkTypes}
+              onAddWorkType={handleAddWorkType}
             />
           )}
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}
 
+          {/* ── Admin: adjust released block hours (increase OR decrease) ── */}
           {adminAdjustTarget && (
             <div className="claim-modal-overlay" role="dialog" aria-modal="true">
               <div className="claim-modal">
-                <div className="claim-modal-title">Reduce released hours</div>
-                <p className="claim-modal-sub">Lower the released capacity for this day. Existing reservations must be cleared before the total can be reduced.</p>
+                <div className="claim-modal-title">Adjust released hours</div>
+                <p className="claim-modal-sub">
+                  Increase or decrease the released capacity for this block. You cannot reduce below the hours
+                  already reserved ({adminAdjustTarget.reservedHours}h).
+                </p>
                 <div className="claim-modal-times">
-                  <span>Currently released: {adminAdjustTarget.currentHours}h</span>
+                  <span>Current: {adminAdjustTarget.currentHours}h released</span>
                   <span>Reserved: {adminAdjustTarget.reservedHours}h</span>
                 </div>
                 <label className="claim-modal-slider">
                   <span>{adminAdjustTarget.targetHours}h</span>
                   <input
                     type="range"
-                    min="1"
-                    max={adminAdjustTarget.currentHours}
+                    min={Math.max(1, adminAdjustTarget.reservedHours)}
+                    max={adminAdjustMax}
                     step="1"
                     value={adminAdjustTarget.targetHours}
                     onChange={(event) => handleAdminAdjustHoursChange(Number(event.target.value))}
                   />
-                  <small>Choose a lower total for this released day.</small>
+                  <small>
+                    Min {Math.max(1, adminAdjustTarget.reservedHours)}h (already reserved) · max {adminAdjustMax}h
+                  </small>
                 </label>
                 <div className="claim-modal-actions">
                   <button className="btn btn--ghost" onClick={() => setAdminAdjustTarget(null)}>
@@ -406,6 +496,7 @@ export default function BoardPage() {
             </div>
           )}
 
+          {/* ── User: claim or adjust a block ── */}
           {!isAdmin && pendingBlock && (
             <div className="claim-modal-overlay" role="dialog" aria-modal="true">
               {cancelConfirmOpen ? (
@@ -423,7 +514,18 @@ export default function BoardPage() {
                 </div>
               ) : (
                 <div className="claim-modal">
-                  <div className="claim-modal-title">{pendingClaim.mode === "adjust" ? "Adjust your reservation" : "Claim this block"}</div>
+                  <div className="claim-modal-title">
+                    {pendingClaim.mode === "adjust" ? "Adjust your reservation" : "Claim this block"}
+                  </div>
+
+                  {/* Project name badge */}
+                  {pendingClaim.workType && (
+                    <div className="claim-modal-project-badge">
+                      <span className="claim-modal-project-dot" />
+                      {pendingClaim.workType}
+                    </div>
+                  )}
+
                   <p className="claim-modal-sub">
                     {pendingClaim.mode === "adjust"
                       ? "Adjust your current reservation for this released block."

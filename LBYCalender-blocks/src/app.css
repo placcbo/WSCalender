@@ -364,6 +364,17 @@
   margin-bottom: 10px;
 }
 
+.admin-access-controls select {
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  flex: 0 0 auto;
+}
+
 .admin-access-controls input {
   flex: 1 1 220px;
   background: var(--ink);
@@ -373,6 +384,25 @@
   padding: 8px 10px;
   font-family: var(--font-mono);
   font-size: 0.82rem;
+}
+
+.admin-access-group {
+  margin-bottom: 10px;
+}
+
+.admin-access-group:last-child {
+  margin-bottom: 0;
+}
+
+.admin-access-group-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  opacity: 0.55;
+  margin-bottom: 6px;
 }
 
 .admin-access-list {
@@ -743,6 +773,41 @@
 }
 
 .time-insights-stat-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.time-insights-projects {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.time-insights-projects-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  opacity: 0.55;
+  margin-bottom: 6px;
+}
+
+.time-insights-project-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.78rem;
+  padding: 2px 0;
+}
+
+.time-insights-project-name {
+  color: var(--paper-dim);
+  opacity: 0.85;
+}
+
+.time-insights-project-hours {
   font-family: var(--font-mono);
   font-weight: 600;
 }
@@ -1232,6 +1297,7 @@
   left: 6px;
   right: 6px;
   border: 1px solid rgba(244, 239, 228, 0.34);
+  border-left: 3px solid var(--slate);
   border-radius: 6px;
   padding: 0;
   overflow: hidden;
@@ -1241,6 +1307,35 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
   z-index: 2;
   transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+/* left-edge accent color keyed by project; falls back to --slate above for
+   any project beyond these two so new projects still render distinctly. */
+.calendar-capacity-block[data-work-type="Extraction"] {
+  border-left-color: var(--amber);
+}
+
+.calendar-capacity-block[data-work-type="Cooking"] {
+  border-left-color: var(--sky);
+}
+
+.calendar-capacity-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.calendar-capacity-project-chip {
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.22);
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 .calendar-capacity-block--open {
@@ -1594,4 +1689,33 @@
   font-size: 0.7rem;
   color: var(--paper-dim);
   opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Claim modal — project badge                                            */
+/* ---------------------------------------------------------------------- */
+
+.claim-modal-project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: rgba(232, 163, 61, 0.12);
+  border: 1px solid rgba(232, 163, 61, 0.28);
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 10px;
+}
+
+.claim-modal-project-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex-shrink: 0;
 }
