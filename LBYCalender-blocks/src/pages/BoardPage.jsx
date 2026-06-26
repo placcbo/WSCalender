@@ -43,7 +43,7 @@ export default function BoardPage() {
     setLoading(true);
     const keys = await fetchWeekRange(weekAnchorDate);
     setDateKeys(keys);
-    const data = await fetchWeekSchedule(keys, user.id, isAdmin);
+    const data = await fetchWeekSchedule(keys, user.id, isAdmin, user.workType);
     setWeekData(data);
     setSummary(await fetchUserHoursSummary(keys, user.id));
     setLoading(false);

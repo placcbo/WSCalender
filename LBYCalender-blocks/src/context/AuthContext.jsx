@@ -17,6 +17,7 @@ export const MOCK_ACCOUNTS = [
     email: "amara.osei@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=47",
     role: "user",
+    workType: "Extraction",
   },
   {
     id: "demo-user-2",
@@ -24,6 +25,7 @@ export const MOCK_ACCOUNTS = [
     email: "liam.chen@gmail.com",
     avatarUrl: "https://i.pravatar.cc/100?img=12",
     role: "user",
+    workType: "Cooking",
   },
   {
     id: "admin-1",

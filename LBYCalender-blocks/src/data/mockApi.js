@@ -66,7 +66,7 @@ function buildBlocks(totalHours, blockSize, startSlot) {
   return blocks;
 }
 
-function addRelease(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00") {
+function addRelease(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00", workType = "Extraction") {
   const current = releaseBlocks.get(dateKey) ?? [];
   const created = buildBlocks(totalHours, blockSize, startSlot).map((block) => ({
     id: `rb-${nextBlockId++}`,
@@ -75,6 +75,7 @@ function addRelease(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "
     shiftName,
     startTime,
     endTime,
+    workType,
   }));
   releaseBlocks.set(dateKey, current.concat(created));
   return created;
@@ -145,19 +146,22 @@ export function fetchDaySchedule(dateKey, currentUserId) {
   return delay((releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId)));
 }
 
-export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false) {
+export function fetchWeekSchedule(dateKeys, currentUserId, isAdmin = false, userWorkType = null) {
   const byDate = {};
   dateKeys.forEach((dateKey) => {
     const blocks = (releaseBlocks.get(dateKey) ?? []).map((block) => serializeBlock(block, currentUserId));
-    const visibleBlocks = isAdmin || !currentUserId || blocks.length === 0
+    const filteredBlocks = (isAdmin || !userWorkType)
       ? blocks
+      : blocks.filter((block) => block.workType === userWorkType);
+    const visibleBlocks = isAdmin || !currentUserId || filteredBlocks.length === 0
+      ? filteredBlocks
       : [
           {
-            ...blocks[0],
-            totalHours: Math.min(8, blocks[0].totalHours),
-            remainingHours: Math.min(8, Math.max(0, blocks[0].remainingHours)),
-            reservedHours: Math.min(8, blocks[0].reservedHours),
-            isFull: Math.min(8, Math.max(0, blocks[0].remainingHours)) <= 0,
+            ...filteredBlocks[0],
+            totalHours: Math.min(8, filteredBlocks[0].totalHours),
+            remainingHours: Math.min(8, Math.max(0, filteredBlocks[0].remainingHours)),
+            reservedHours: Math.min(8, filteredBlocks[0].reservedHours),
+            isFull: Math.min(8, Math.max(0, filteredBlocks[0].remainingHours)) <= 0,
           },
         ];
     byDate[dateKey] = {
@@ -199,10 +203,10 @@ export function fetchAdminCapacitySummary(dateKeys) {
   return delay(byDate);
 }
 
-export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00") {
+export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00", workType = "Extraction") {
   const normalizedTotal = Math.max(1, Number(totalHours) || 1);
   const normalizedBlockSize = Math.max(1, Number(blockSize) || 1);
-  const created = addRelease(dateKey, normalizedTotal, normalizedBlockSize, Number(startSlot) || 0, shiftName, startTime, endTime);
+  const created = addRelease(dateKey, normalizedTotal, normalizedBlockSize, Number(startSlot) || 0, shiftName, startTime, endTime, workType);
   return delay({ ok: true, created });
 }
 
