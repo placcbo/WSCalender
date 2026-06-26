@@ -88,7 +88,7 @@ export default function WeekGrid({
                       .filter(Boolean)
                       .join(" ")}
                     style={{ top, height }}
-                    disabled={disabled || isAdmin || block.remainingHours <= 0}
+                    disabled={disabled || isAdmin || (!block.myHours && block.remainingHours <= 0)}
                     onClick={() => onSelectBlock(dateKey, block)}
                   >
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />

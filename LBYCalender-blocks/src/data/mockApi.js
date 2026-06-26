@@ -253,6 +253,24 @@ export function reserveHours(dateKey, blockId, hours, userId, maxHoursPerDay) {
   return delay({ ok: true, created });
 }
 
+export function updateBookingHours(bookingId, hours, userId) {
+  const target = bookings.find((booking) => booking.id === bookingId);
+  if (!target) return delay({ ok: false, error: "Booking not found." });
+  if (target.userId !== userId) return delay({ ok: false, error: "Not your booking." });
+
+  const normalizedHours = Math.max(1, Number(hours) || 1);
+  if (normalizedHours > target.hours) {
+    return delay({ ok: false, error: `You already have ${target.hours}h reserved.` });
+  }
+
+  if (normalizedHours === target.hours) {
+    return delay({ ok: true, updated: false, booking: target });
+  }
+
+  bookings = bookings.map((booking) => (booking.id === bookingId ? { ...booking, hours: normalizedHours } : booking));
+  return delay({ ok: true, updated: true, booking: { ...target, hours: normalizedHours } });
+}
+
 export function cancelBooking(bookingId, userId) {
   const target = bookings.find((booking) => booking.id === bookingId);
   if (!target) return delay({ ok: false, error: "Booking not found." });

@@ -9,6 +9,7 @@ import {
   releaseHours,
   reserveHours,
   revokeBlock,
+  updateBookingHours,
 } from "../data/mockApi";
 import { formatDateHeading, formatMonthHeading, MAX_HOURS_PER_DAY, toDateKey } from "../data/schedule";
 import Header from "../components/Header";
@@ -58,8 +59,8 @@ export default function BoardPage() {
     fetchUserHoursForDay(activeDate, user?.id ?? "").then(setCommittedHours);
   }, [activeDate, user?.id, weekData]);
 
-  const pendingHours = pendingClaim?.dateKey === activeDate ? pendingClaim.hours : 0;
-  const overBudget = committedHours + pendingHours > MAX_HOURS_PER_DAY;
+  const pendingHours = pendingClaim?.dateKey === activeDate && pendingClaim?.mode !== "adjust" ? pendingClaim.hours : 0;
+  const overBudget = pendingClaim?.mode !== "adjust" && committedHours + pendingHours > MAX_HOURS_PER_DAY;
   const pendingBlock = useMemo(() => {
     if (!pendingClaim) return null;
     return weekData[pendingClaim.dateKey]?.blocks.find((block) => block.id === pendingClaim.blockId) ?? null;
@@ -67,17 +68,30 @@ export default function BoardPage() {
 
   const handleSelectBlock = useCallback(
     (dateKey, block) => {
-      if (isAdmin || block.isFull) return;
+      if (isAdmin) return;
       setBanner(null);
       setActiveDate(dateKey);
+      const existingHours = block.myHours ?? 0;
+      if (existingHours > 0) {
+        setPendingClaim({
+          dateKey,
+          blockId: block.id,
+          hours: existingHours,
+          maxHours: existingHours,
+          existingHours,
+          mode: "adjust",
+          bookingId: block.bookings?.find((booking) => booking.isMine)?.id ?? null,
+        });
+        return;
+      }
+      if (block.isFull) return;
       const committedForThisDay = dateKey === activeDate ? committedHours : 0;
       const maxHours = Math.min(block.remainingHours, MAX_HOURS_PER_DAY - committedForThisDay);
       if (maxHours <= 0) {
         setBanner({ kind: "error", text: `You're capped at ${MAX_HOURS_PER_DAY}h/day.` });
         return;
       }
-      const existingHours = block.myHours ?? 0;
-      setPendingClaim({ dateKey, blockId: block.id, hours: Math.min(existingHours || 1, maxHours), maxHours, existingHours });
+      setPendingClaim({ dateKey, blockId: block.id, hours: Math.min(1, maxHours), maxHours, existingHours, mode: "reserve" });
     },
     [activeDate, committedHours, isAdmin]
   );
@@ -90,19 +104,28 @@ export default function BoardPage() {
     if (!pendingClaim) return;
     setSubmitting(true);
     setBanner(null);
-    const res = await reserveHours(
-      pendingClaim.dateKey,
-      pendingClaim.blockId,
-      pendingClaim.hours,
-      user?.id ?? "",
-      MAX_HOURS_PER_DAY
-    );
+    const res =
+      pendingClaim.mode === "adjust"
+        ? await updateBookingHours(pendingClaim.bookingId, pendingClaim.hours, user?.id ?? "")
+        : await reserveHours(
+            pendingClaim.dateKey,
+            pendingClaim.blockId,
+            pendingClaim.hours,
+            user?.id ?? "",
+            MAX_HOURS_PER_DAY
+          );
     setSubmitting(false);
     if (!res.ok) {
       setBanner({ kind: "error", text: res.error });
       return;
     }
-    setBanner({ kind: "success", text: `Reserved ${pendingClaim.hours}h on ${formatDateHeading(pendingClaim.dateKey)}.` });
+    setBanner({
+      kind: "success",
+      text:
+        pendingClaim.mode === "adjust"
+          ? `Updated reservation to ${pendingClaim.hours}h on ${formatDateHeading(pendingClaim.dateKey)}.`
+          : `Reserved ${pendingClaim.hours}h on ${formatDateHeading(pendingClaim.dateKey)}.`,
+    });
     setPendingClaim(null);
     loadWeek(new Date(pendingClaim.dateKey));
   }, [loadWeek, pendingClaim, user?.id]);
@@ -266,8 +289,12 @@ export default function BoardPage() {
           {!isAdmin && pendingBlock && (
             <div className="claim-modal-overlay" role="dialog" aria-modal="true">
               <div className="claim-modal">
-                <div className="claim-modal-title">Claim this block</div>
-                <p className="claim-modal-sub">Choose how many hours to reserve from this released block.</p>
+                <div className="claim-modal-title">{pendingClaim.mode === "adjust" ? "Adjust your reservation" : "Claim this block"}</div>
+                <p className="claim-modal-sub">
+                  {pendingClaim.mode === "adjust"
+                    ? "Reduce your current reservation for this released block."
+                    : "Choose how many hours to reserve from this released block."}
+                </p>
                 <div className="claim-modal-times">
                   <span>Start: 08:00</span>
                   <span>End: 16:00</span>
@@ -282,14 +309,18 @@ export default function BoardPage() {
                     value={pendingClaim.hours}
                     onChange={(event) => handlePendingHoursChange(Number(event.target.value))}
                   />
-                  <small>Up to {pendingClaim.maxHours}h available</small>
+                  <small>
+                    {pendingClaim.mode === "adjust"
+                      ? `Choose between 1h and ${pendingClaim.maxHours}h`
+                      : `Up to ${pendingClaim.maxHours}h available`}
+                  </small>
                 </label>
                 <div className="claim-modal-actions">
                   <button className="btn btn--ghost" onClick={handleClearPending}>
                     Cancel
                   </button>
                   <button className="btn btn--teal" disabled={overBudget || submitting} onClick={handleConfirm}>
-                    {submitting ? "Reserving..." : "Confirm"}
+                    {submitting ? (pendingClaim.mode === "adjust" ? "Updating..." : "Reserving...") : pendingClaim.mode === "adjust" ? "Save" : "Confirm"}
                   </button>
                 </div>
               </div>
