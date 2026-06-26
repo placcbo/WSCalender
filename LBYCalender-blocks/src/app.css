@@ -300,10 +300,10 @@
 }
 
 .admin-panel-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   align-items: end;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .admin-field {
@@ -312,6 +312,11 @@
   gap: 4px;
   font-size: 0.72rem;
   color: var(--paper-dim);
+}
+
+.admin-panel .btn--amber {
+  min-height: 38px;
+  align-self: stretch;
 }
 
 .admin-field select,
@@ -1243,6 +1248,11 @@
   color: #132012;
 }
 
+.calendar-capacity-block--admin {
+  border-style: dashed;
+  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.2) inset;
+}
+
 .calendar-capacity-block--reserved {
   background: rgba(71, 91, 83, 0.88);
   color: #eef6ef;
@@ -1298,6 +1308,17 @@
   flex-direction: column;
   gap: 2px;
   margin-top: auto;
+}
+
+.calendar-capacity-admin-hint {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin-bottom: 4px;
 }
 
 .calendar-capacity-claimed,

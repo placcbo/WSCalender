@@ -35,6 +35,7 @@ export default function BoardPage() {
   const [weekData, setWeekData] = useState({});
   const [pendingClaim, setPendingClaim] = useState(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [adminAdjustTarget, setAdminAdjustTarget] = useState(null);
   const [activeDate, setActiveDate] = useState(todayKey);
   const [committedHours, setCommittedHours] = useState(0);
   const [summary, setSummary] = useState({ reportedHours: 0, reservedHours: 0 });
@@ -73,7 +74,20 @@ export default function BoardPage() {
 
   const handleSelectBlock = useCallback(
     (dateKey, block) => {
-      if (isAdmin) return;
+      if (isAdmin) {
+        setAdminAdjustTarget({
+          dateKey,
+          blockId: block.id,
+          currentHours: block.totalHours,
+          reservedHours: block.reservedHours ?? 0,
+          targetHours: block.totalHours,
+          shiftName: block.shiftName ?? "Extraction Experienced",
+          startTime: block.startTime ?? "08:00",
+          endTime: block.endTime ?? "17:00",
+        });
+        setActiveDate(dateKey);
+        return;
+      }
       setBanner(null);
       setActiveDate(dateKey);
       const existingHours = block.myHours ?? 0;
@@ -152,6 +166,33 @@ export default function BoardPage() {
     setPendingClaim(null);
     setCancelConfirmOpen(false);
   }, []);
+
+  const handleAdminAdjustHoursChange = useCallback((hours) => {
+    setAdminAdjustTarget((current) => (current ? { ...current, targetHours: hours } : current));
+  }, []);
+
+  const handleAdminAdjustConfirm = useCallback(async () => {
+    if (!adminAdjustTarget) return;
+    setSubmitting(true);
+    setBanner(null);
+    const res = await adjustReleasedHours(
+      adminAdjustTarget.dateKey,
+      adminAdjustTarget.targetHours,
+      adminAdjustTarget.targetHours,
+      0,
+      adminAdjustTarget.shiftName,
+      adminAdjustTarget.startTime,
+      adminAdjustTarget.endTime
+    );
+    setSubmitting(false);
+    if (!res.ok) {
+      setBanner({ kind: "error", text: res.error });
+      return;
+    }
+    setBanner({ kind: "success", text: `Updated released capacity to ${adminAdjustTarget.targetHours}h.` });
+    setAdminAdjustTarget(null);
+    loadWeek(new Date(adminAdjustTarget.dateKey));
+  }, [adminAdjustTarget, loadWeek]);
 
   const handleCancelReservation = useCallback(async () => {
     if (!pendingClaim?.bookingId) return;
@@ -331,6 +372,39 @@ export default function BoardPage() {
             />
           )}
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}
+
+          {adminAdjustTarget && (
+            <div className="claim-modal-overlay" role="dialog" aria-modal="true">
+              <div className="claim-modal">
+                <div className="claim-modal-title">Reduce released hours</div>
+                <p className="claim-modal-sub">Lower the released capacity for this day. Existing reservations must be cleared before the total can be reduced.</p>
+                <div className="claim-modal-times">
+                  <span>Currently released: {adminAdjustTarget.currentHours}h</span>
+                  <span>Reserved: {adminAdjustTarget.reservedHours}h</span>
+                </div>
+                <label className="claim-modal-slider">
+                  <span>{adminAdjustTarget.targetHours}h</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max={adminAdjustTarget.currentHours}
+                    step="1"
+                    value={adminAdjustTarget.targetHours}
+                    onChange={(event) => handleAdminAdjustHoursChange(Number(event.target.value))}
+                  />
+                  <small>Choose a lower total for this released day.</small>
+                </label>
+                <div className="claim-modal-actions">
+                  <button className="btn btn--ghost" onClick={() => setAdminAdjustTarget(null)}>
+                    Cancel
+                  </button>
+                  <button className="btn btn--teal" disabled={submitting} onClick={handleAdminAdjustConfirm}>
+                    {submitting ? "Updating..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {!isAdmin && pendingBlock && (
             <div className="claim-modal-overlay" role="dialog" aria-modal="true">

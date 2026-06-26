@@ -74,7 +74,7 @@ export default function WeekGrid({
                 const startHour = Number.parseInt((block.startTime ?? "08:00").split(":")[0], 10);
                 const top = Math.max(0, (startHour - DAY_START_HOUR) * ROW_HEIGHT);
                 const height = Math.max(ROW_HEIGHT, Math.max(1, Number(block.totalHours) || 1) * ROW_HEIGHT);
-                const reservedPct = block.totalHours > 0 ? Math.min(100, (block.myHours / block.totalHours) * 100) : 0;
+                const reservedPct = block.totalHours > 0 ? Math.min(100, ((isAdmin ? block.reservedHours : block.myHours) / block.totalHours) * 100) : 0;
                 const isSelected = pendingClaim?.blockId === block.id;
                 const isNewOpportunity = block.remainingHours > 0;
 
@@ -83,6 +83,7 @@ export default function WeekGrid({
                     key={block.id}
                     className={[
                       "calendar-capacity-block",
+                      isAdmin && "calendar-capacity-block--admin",
                       hasMyReservation ? "calendar-capacity-block--mine" : isNewOpportunity ? "calendar-capacity-block--open" : "calendar-capacity-block--reserved",
                       block.isFull && "calendar-capacity-block--full",
                       isSelected && "calendar-capacity-block--selected",
@@ -90,12 +91,13 @@ export default function WeekGrid({
                       .filter(Boolean)
                       .join(" ")}
                     style={{ top, height }}
-                    disabled={disabled || isAdmin || (!block.myHours && block.remainingHours <= 0)}
+                    disabled={disabled || (!isAdmin && (!block.myHours && block.remainingHours <= 0))}
                     onClick={() => onSelectBlock(dateKey, block)}
                   >
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
                       <span className="calendar-capacity-title">{block.shiftName || "Hubdoc"}</span>
+                      {isAdmin && <span className="calendar-capacity-admin-hint">Tap to reduce</span>}
                       <span className="calendar-capacity-stack">
                         <span className="calendar-capacity-claimed">
                           {isAdmin ? `${block.totalHours}h total` : `${block.myHours || 0}h claimed`}
