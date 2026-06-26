@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 
 // ---------------------------------------------------------------------------
 // Mocked Google auth.
@@ -9,6 +9,24 @@ import { createContext, useContext, useState, useCallback } from "react";
 // The shape of `user` (id, name, email, avatarUrl, role) is kept identical
 // so nothing downstream needs to change.
 // ---------------------------------------------------------------------------
+
+const EXTRACTION_VIEWER_STORAGE_KEY = "workstream-extraction-viewers";
+
+function normalizeEmail(value) {
+  return value.trim().toLowerCase();
+}
+
+function readStoredViewerEmails() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(EXTRACTION_VIEWER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(Boolean).map(normalizeEmail) : [];
+  } catch {
+    return [];
+  }
+}
 
 export const MOCK_ACCOUNTS = [
   {
@@ -28,6 +46,38 @@ export const MOCK_ACCOUNTS = [
     workType: "Cooking",
   },
   {
+    id: "demo-user-3",
+    name: "Nia Brooks",
+    email: "nia.brooks@gmail.com",
+    avatarUrl: "https://i.pravatar.cc/100?img=32",
+    role: "user",
+    workType: "Extraction",
+  },
+  {
+    id: "demo-user-4",
+    name: "Oliver Grant",
+    email: "oliver.grant@gmail.com",
+    avatarUrl: "https://i.pravatar.cc/100?img=56",
+    role: "user",
+    workType: "Cooking",
+  },
+  {
+    id: "demo-user-5",
+    name: "Sofia Patel",
+    email: "sofia.patel@gmail.com",
+    avatarUrl: "https://i.pravatar.cc/100?img=15",
+    role: "user",
+    workType: "Extraction",
+  },
+  {
+    id: "demo-user-6",
+    name: "Marcus Diaz",
+    email: "marcus.diaz@gmail.com",
+    avatarUrl: "https://i.pravatar.cc/100?img=24",
+    role: "user",
+    workType: "Cooking",
+  },
+  {
     id: "admin-1",
     name: "Foreman (Admin)",
     email: "foreman@worksite.com",
@@ -41,26 +91,81 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [extractionViewerEmails, setExtractionViewerEmails] = useState(() => readStoredViewerEmails());
 
-  const login = useCallback((accountId) => {
-    setIsAuthenticating(true);
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const account = MOCK_ACCOUNTS.find((a) => a.id === accountId);
-        setUser(account ?? null);
-        setIsAuthenticating(false);
-        resolve(account);
-      }, 350);
+  const resolveEffectiveWorkType = useCallback(
+    (email, fallbackWorkType) => {
+      if (!email) return fallbackWorkType;
+      const normalizedEmail = normalizeEmail(email);
+      return extractionViewerEmails.includes(normalizedEmail) ? "Extraction" : fallbackWorkType;
+    },
+    [extractionViewerEmails]
+  );
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(EXTRACTION_VIEWER_STORAGE_KEY, JSON.stringify(extractionViewerEmails));
+    }
+  }, [extractionViewerEmails]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    setUser((current) => {
+      if (!current) return current;
+      const nextEffectiveWorkType = resolveEffectiveWorkType(current.email, current.workType);
+      if (nextEffectiveWorkType === current.effectiveWorkType) return current;
+      return { ...current, effectiveWorkType: nextEffectiveWorkType };
     });
+  }, [resolveEffectiveWorkType, user?.email]);
+
+  const addExtractionViewerEmail = useCallback((email) => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return;
+    setExtractionViewerEmails((current) => (current.includes(normalizedEmail) ? current : [...current, normalizedEmail]));
   }, []);
+
+  const removeExtractionViewerEmail = useCallback((email) => {
+    const normalizedEmail = normalizeEmail(email);
+    setExtractionViewerEmails((current) => current.filter((entry) => entry !== normalizedEmail));
+  }, []);
+
+  const login = useCallback(
+    (accountId) => {
+      setIsAuthenticating(true);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const account = MOCK_ACCOUNTS.find((a) => a.id === accountId);
+          const resolvedAccount = account
+            ? {
+                ...account,
+                effectiveWorkType: resolveEffectiveWorkType(account.email, account.workType),
+              }
+            : null;
+          setUser(resolvedAccount);
+          setIsAuthenticating(false);
+          resolve(resolvedAccount);
+        }, 350);
+      });
+    },
+    [resolveEffectiveWorkType]
+  );
 
   const logout = useCallback(() => setUser(null), []);
 
-  return (
-    <AuthContext.Provider value={{ user, isAuthenticating, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user: user ? { ...user, effectiveWorkType: resolveEffectiveWorkType(user.email, user.workType) } : null,
+      isAuthenticating,
+      login,
+      logout,
+      extractionViewerEmails,
+      addExtractionViewerEmail,
+      removeExtractionViewerEmail,
+    }),
+    [user, isAuthenticating, login, logout, resolveEffectiveWorkType, extractionViewerEmails, addExtractionViewerEmail, removeExtractionViewerEmail]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

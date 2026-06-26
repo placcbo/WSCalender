@@ -1,10 +1,25 @@
 import { useState } from "react";
 
-export default function AdminReleasePanel({ onRelease, disabled, selectedDate, onDateChange }) {
+export default function AdminReleasePanel({
+  onRelease,
+  disabled,
+  selectedDate,
+  onDateChange,
+  visibleEmails,
+  onAddEmail,
+  onRemoveEmail,
+}) {
   const [totalHours, setTotalHours] = useState(50);
   const [shiftName, setShiftName] = useState("Extraction Experienced");
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("17:00");
+  const [emailInput, setEmailInput] = useState("");
+
+  const handleAddEmail = () => {
+    if (!emailInput.trim()) return;
+    onAddEmail(emailInput);
+    setEmailInput("");
+  };
 
   return (
     <div className="admin-panel">
@@ -44,6 +59,35 @@ export default function AdminReleasePanel({ onRelease, disabled, selectedDate, o
         >
           Release {totalHours}h
         </button>
+      </div>
+
+      <div className="admin-access-panel">
+        <div className="admin-access-header">
+          <div>
+            <div className="admin-access-title">Extraction access</div>
+            <p className="admin-access-sub">Add account emails that should be able to see Extraction blocks.</p>
+          </div>
+        </div>
+        <div className="admin-access-controls">
+          <input
+            value={emailInput}
+            onChange={(event) => setEmailInput(event.target.value)}
+            placeholder="name@company.com"
+          />
+          <button className="btn btn--ghost" onClick={handleAddEmail} disabled={!emailInput.trim()}>
+            Add email
+          </button>
+        </div>
+        <div className="admin-access-list">
+          {visibleEmails.map((email) => (
+            <span key={email} className="admin-access-pill">
+              {email}
+              <button type="button" className="admin-access-pill-remove" onClick={() => onRemoveEmail(email)}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

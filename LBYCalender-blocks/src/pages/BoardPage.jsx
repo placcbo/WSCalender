@@ -23,8 +23,9 @@ const todayDate = new Date();
 const todayKey = toDateKey(todayDate);
 
 export default function BoardPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, extractionViewerEmails, addExtractionViewerEmail, removeExtractionViewerEmail } = useAuth();
   const isAdmin = user.role === "admin";
+  const effectiveWorkType = user?.effectiveWorkType ?? user?.workType ?? null;
 
   const [anchorDate, setAnchorDate] = useState(todayDate);
   const [monthCursor, setMonthCursor] = useState({ year: todayDate.getFullYear(), month: todayDate.getMonth() });
@@ -43,19 +44,19 @@ export default function BoardPage() {
     setLoading(true);
     const keys = await fetchWeekRange(weekAnchorDate);
     setDateKeys(keys);
-    const data = await fetchWeekSchedule(keys, user.id, isAdmin, user.workType);
+    const data = await fetchWeekSchedule(keys, user?.id ?? "", isAdmin, effectiveWorkType);
     setWeekData(data);
-    setSummary(await fetchUserHoursSummary(keys, user.id));
+    setSummary(await fetchUserHoursSummary(keys, user?.id ?? ""));
     setLoading(false);
-  }, [anchorDate, user.id]);
+  }, [anchorDate, user?.id, isAdmin, effectiveWorkType]);
 
   useEffect(() => {
     loadWeek(anchorDate);
   }, [anchorDate, loadWeek]);
 
   useEffect(() => {
-    fetchUserHoursForDay(activeDate, user.id).then(setCommittedHours);
-  }, [activeDate, user.id, weekData]);
+    fetchUserHoursForDay(activeDate, user?.id ?? "").then(setCommittedHours);
+  }, [activeDate, user?.id, weekData]);
 
   const pendingHours = pendingClaim?.dateKey === activeDate ? pendingClaim.hours : 0;
   const overBudget = committedHours + pendingHours > MAX_HOURS_PER_DAY;
@@ -93,7 +94,7 @@ export default function BoardPage() {
       pendingClaim.dateKey,
       pendingClaim.blockId,
       pendingClaim.hours,
-      user.id,
+      user?.id ?? "",
       MAX_HOURS_PER_DAY
     );
     setSubmitting(false);
@@ -104,7 +105,7 @@ export default function BoardPage() {
     setBanner({ kind: "success", text: `Reserved ${pendingClaim.hours}h on ${formatDateHeading(pendingClaim.dateKey)}.` });
     setPendingClaim(null);
     loadWeek(new Date(pendingClaim.dateKey));
-  }, [loadWeek, pendingClaim, user.id]);
+  }, [loadWeek, pendingClaim, user?.id]);
 
   const handleClearPending = useCallback(() => {
     setPendingClaim(null);
@@ -113,12 +114,12 @@ export default function BoardPage() {
   const handleCancelBooking = useCallback(
     async (bookingId) => {
       setSubmitting(true);
-      const res = await cancelBooking(bookingId, user.id);
+      const res = await cancelBooking(bookingId, user?.id ?? "");
       setSubmitting(false);
       setBanner(res.ok ? { kind: "success", text: "Booking cancelled." } : { kind: "error", text: res.error });
       if (res.ok) loadWeek(anchorDate);
     },
-    [loadWeek, user.id]
+    [loadWeek, user?.id]
   );
 
   const handleRevokeBlock = useCallback(
@@ -255,6 +256,9 @@ export default function BoardPage() {
               disabled={loading || submitting}
               selectedDate={activeDate}
               onDateChange={handleDateChange}
+              visibleEmails={extractionViewerEmails}
+              onAddEmail={addExtractionViewerEmail}
+              onRemoveEmail={removeExtractionViewerEmail}
             />
           )}
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}

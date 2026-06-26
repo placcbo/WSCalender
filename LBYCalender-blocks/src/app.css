@@ -326,6 +326,78 @@
 }
 
 /* ---------------------------------------------------------------------- */
+/* Admin access controls                                                 */
+/* ---------------------------------------------------------------------- */
+
+.admin-access-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-access-header {
+  margin-bottom: 8px;
+}
+
+.admin-access-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.admin-access-sub {
+  margin: 3px 0 0;
+  font-size: 0.74rem;
+  color: var(--paper-dim);
+  opacity: 0.68;
+}
+
+.admin-access-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.admin-access-controls input {
+  flex: 1 1 220px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.admin-access-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-access-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(61, 140, 125, 0.16);
+  color: #bfe9e0;
+  font-size: 0.74rem;
+}
+
+.admin-access-pill-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Banner                                                                 */
 /* ---------------------------------------------------------------------- */
 
