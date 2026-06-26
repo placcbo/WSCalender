@@ -6,6 +6,7 @@ import {
   fetchUserHoursSummary,
   fetchWeekRange,
   fetchWeekSchedule,
+  adjustReleasedHours,
   releaseHours,
   reserveHours,
   revokeBlock,
@@ -33,6 +34,7 @@ export default function BoardPage() {
   const [dateKeys, setDateKeys] = useState([]);
   const [weekData, setWeekData] = useState({});
   const [pendingClaim, setPendingClaim] = useState(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [activeDate, setActiveDate] = useState(todayKey);
   const [committedHours, setCommittedHours] = useState(0);
   const [summary, setSummary] = useState({ reportedHours: 0, reservedHours: 0 });
@@ -41,8 +43,10 @@ export default function BoardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState(null);
 
-  const loadWeek = useCallback(async (weekAnchorDate = anchorDate) => {
-    setLoading(true);
+  const loadWeek = useCallback(async (weekAnchorDate = anchorDate, showSpinner = false) => {
+    if (showSpinner) {
+      setLoading(true);
+    }
     const keys = await fetchWeekRange(weekAnchorDate);
     setDateKeys(keys);
     const data = await fetchWeekSchedule(keys, user?.id ?? "", isAdmin, effectiveWorkType);
@@ -52,7 +56,7 @@ export default function BoardPage() {
   }, [anchorDate, user?.id, isAdmin, effectiveWorkType]);
 
   useEffect(() => {
-    loadWeek(anchorDate);
+    loadWeek(anchorDate, true);
   }, [anchorDate, loadWeek]);
 
   useEffect(() => {
@@ -61,6 +65,7 @@ export default function BoardPage() {
 
   const pendingHours = pendingClaim?.dateKey === activeDate && pendingClaim?.mode !== "adjust" ? pendingClaim.hours : 0;
   const overBudget = pendingClaim?.mode !== "adjust" && committedHours + pendingHours > MAX_HOURS_PER_DAY;
+  const isAdjustingToZero = pendingClaim?.mode === "adjust" && pendingClaim.hours === 0;
   const pendingBlock = useMemo(() => {
     if (!pendingClaim) return null;
     return weekData[pendingClaim.dateKey]?.blocks.find((block) => block.id === pendingClaim.blockId) ?? null;
@@ -73,11 +78,14 @@ export default function BoardPage() {
       setActiveDate(dateKey);
       const existingHours = block.myHours ?? 0;
       if (existingHours > 0) {
+        const availableForThisBooking = Math.max(existingHours, (block.remainingHours ?? 0) + existingHours);
+        const dailyAllowance = Math.max(existingHours, MAX_HOURS_PER_DAY - Math.max(0, committedHours - existingHours));
+        const maxHours = Math.min(availableForThisBooking, dailyAllowance);
         setPendingClaim({
           dateKey,
           blockId: block.id,
           hours: existingHours,
-          maxHours: existingHours,
+          maxHours,
           existingHours,
           mode: "adjust",
           bookingId: block.bookings?.find((booking) => booking.isMine)?.id ?? null,
@@ -97,16 +105,26 @@ export default function BoardPage() {
   );
 
   const handlePendingHoursChange = useCallback((hours) => {
-    setPendingClaim((current) => (current ? { ...current, hours } : current));
+    setPendingClaim((current) => {
+      if (!current) return current;
+      if (current.mode === "adjust") {
+        setCancelConfirmOpen(hours === 0);
+      }
+      return { ...current, hours };
+    });
   }, []);
 
   const handleConfirm = useCallback(async () => {
     if (!pendingClaim) return;
+    if (pendingClaim.mode === "adjust" && pendingClaim.hours === 0) {
+      setCancelConfirmOpen(true);
+      return;
+    }
     setSubmitting(true);
     setBanner(null);
     const res =
       pendingClaim.mode === "adjust"
-        ? await updateBookingHours(pendingClaim.bookingId, pendingClaim.hours, user?.id ?? "")
+        ? await updateBookingHours(pendingClaim.bookingId, pendingClaim.hours, user?.id ?? "", MAX_HOURS_PER_DAY)
         : await reserveHours(
             pendingClaim.dateKey,
             pendingClaim.blockId,
@@ -132,7 +150,23 @@ export default function BoardPage() {
 
   const handleClearPending = useCallback(() => {
     setPendingClaim(null);
+    setCancelConfirmOpen(false);
   }, []);
+
+  const handleCancelReservation = useCallback(async () => {
+    if (!pendingClaim?.bookingId) return;
+    setSubmitting(true);
+    setCancelConfirmOpen(false);
+    const res = await updateBookingHours(pendingClaim.bookingId, 0, user?.id ?? "");
+    setSubmitting(false);
+    if (!res.ok) {
+      setBanner({ kind: "error", text: res.error });
+      return;
+    }
+    setBanner({ kind: "success", text: "Reservation cancelled." });
+    setPendingClaim(null);
+    loadWeek(new Date(pendingClaim.dateKey));
+  }, [loadWeek, pendingClaim, user?.id]);
 
   const handleCancelBooking = useCallback(
     async (bookingId) => {
@@ -162,16 +196,24 @@ export default function BoardPage() {
   }, []);
 
   const handleRelease = useCallback(
-    async ({ dateKey, totalHours, shiftName, startTime, endTime }) => {
+    async ({ dateKey, totalHours, shiftName, startTime, endTime, mode = "release" }) => {
       const [year, month, day] = dateKey.split("-").map(Number);
-      await releaseHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
+      if (mode === "adjust") {
+        await adjustReleasedHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
+        setBanner({
+          kind: "success",
+          text: `Updated released capacity to ${totalHours}h on ${formatDateHeading(dateKey)}.`,
+        });
+      } else {
+        await releaseHours(dateKey, totalHours, totalHours, 0, shiftName, startTime, endTime);
+        setBanner({
+          kind: "success",
+          text: `Released ${totalHours}h capacity on ${formatDateHeading(dateKey)}.`,
+        });
+      }
       setActiveDate(dateKey);
       setAnchorDate(new Date(year, month - 1, day));
       setMonthCursor({ year, month: month - 1 });
-      setBanner({
-        kind: "success",
-        text: `Released ${totalHours}h capacity on ${formatDateHeading(dateKey)}.`,
-      });
       loadWeek(new Date(year, month - 1, day));
     },
     [loadWeek]
@@ -282,53 +324,80 @@ export default function BoardPage() {
               visibleEmails={extractionViewerEmails}
               onAddEmail={addExtractionViewerEmail}
               onRemoveEmail={removeExtractionViewerEmail}
+              existingHours={weekData[activeDate]?.summary.releasedHours ?? 0}
+              existingShiftName={weekData[activeDate]?.blocks?.[0]?.shiftName ?? ""}
+              existingStartTime={weekData[activeDate]?.blocks?.[0]?.startTime ?? "08:00"}
+              existingEndTime={weekData[activeDate]?.blocks?.[0]?.endTime ?? "17:00"}
             />
           )}
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}
 
           {!isAdmin && pendingBlock && (
             <div className="claim-modal-overlay" role="dialog" aria-modal="true">
-              <div className="claim-modal">
-                <div className="claim-modal-title">{pendingClaim.mode === "adjust" ? "Adjust your reservation" : "Claim this block"}</div>
-                <p className="claim-modal-sub">
-                  {pendingClaim.mode === "adjust"
-                    ? "Reduce your current reservation for this released block."
-                    : "Choose how many hours to reserve from this released block."}
-                </p>
-                <div className="claim-modal-times">
-                  <span>Start: {pendingBlock?.startTime ?? "08:00"}</span>
-                  <span>End: {pendingBlock?.endTime ?? "16:00"}</span>
+              {cancelConfirmOpen ? (
+                <div className="claim-modal">
+                  <div className="claim-modal-title">Cancel reservation?</div>
+                  <p className="claim-modal-sub">This will remove your current reservation for this block.</p>
+                  <div className="claim-modal-actions">
+                    <button className="btn btn--ghost" onClick={() => setCancelConfirmOpen(false)}>
+                      Keep reservation
+                    </button>
+                    <button className="btn btn--teal" disabled={submitting} onClick={handleCancelReservation}>
+                      {submitting ? "Cancelling..." : "Cancel reservation"}
+                    </button>
+                  </div>
                 </div>
-                <label className="claim-modal-slider">
-                  <span>{pendingClaim.hours}h</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max={pendingClaim.maxHours}
-                    step="1"
-                    value={pendingClaim.hours}
-                    onChange={(event) => handlePendingHoursChange(Number(event.target.value))}
-                  />
-                  <small>
+              ) : (
+                <div className="claim-modal">
+                  <div className="claim-modal-title">{pendingClaim.mode === "adjust" ? "Adjust your reservation" : "Claim this block"}</div>
+                  <p className="claim-modal-sub">
                     {pendingClaim.mode === "adjust"
-                      ? `Choose between 1h and ${pendingClaim.maxHours}h`
-                      : `Up to ${pendingClaim.maxHours}h available`}
-                  </small>
-                </label>
-                <div className="claim-modal-actions">
-                  <button className="btn btn--ghost" onClick={handleClearPending}>
-                    Cancel
-                  </button>
-                  <button className="btn btn--teal" disabled={overBudget || submitting} onClick={handleConfirm}>
-                    {submitting ? (pendingClaim.mode === "adjust" ? "Updating..." : "Reserving...") : pendingClaim.mode === "adjust" ? "Save" : "Confirm"}
-                  </button>
+                      ? "Adjust your current reservation for this released block."
+                      : "Choose how many hours to reserve from this released block."}
+                  </p>
+                  <div className="claim-modal-times">
+                    <span>Start: {pendingBlock?.startTime ?? "08:00"}</span>
+                    <span>End: {pendingBlock?.endTime ?? "16:00"}</span>
+                  </div>
+                  <label className="claim-modal-slider">
+                    <span>{pendingClaim.hours}h</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max={pendingClaim.maxHours}
+                      step="1"
+                      value={pendingClaim.hours}
+                      onChange={(event) => handlePendingHoursChange(Number(event.target.value))}
+                    />
+                    <small>
+                      {pendingClaim.mode === "adjust"
+                        ? `Choose between 0h and ${pendingClaim.maxHours}h; setting it to 0 cancels the reservation.`
+                        : `Up to ${pendingClaim.maxHours}h available`}
+                    </small>
+                  </label>
+                  <div className="claim-modal-actions">
+                    <button className="btn btn--ghost" onClick={handleClearPending}>
+                      Cancel
+                    </button>
+                    <button className="btn btn--teal" disabled={overBudget || submitting} onClick={handleConfirm}>
+                      {submitting
+                        ? pendingClaim.mode === "adjust"
+                          ? "Updating..."
+                          : "Reserving..."
+                        : pendingClaim.mode === "adjust"
+                          ? isAdjustingToZero
+                            ? "Cancel reservation"
+                            : "Save"
+                          : "Confirm"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
           <div className="board-week-grid-wrap">
-            {loading ? (
+            {loading && Object.keys(weekData).length === 0 ? (
               <div className="ledger-loading">Loading the week...</div>
             ) : (
               <WeekGrid

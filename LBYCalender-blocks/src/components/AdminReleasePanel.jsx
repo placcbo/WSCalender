@@ -17,18 +17,24 @@ export default function AdminReleasePanel({
   visibleEmails,
   onAddEmail,
   onRemoveEmail,
+  existingHours = 0,
+  existingShiftName = "",
+  existingStartTime = "08:00",
+  existingEndTime = "17:00",
 }) {
-  const [totalHours, setTotalHours] = useState(50);
-  const [shiftName, setShiftName] = useState("Extraction Experienced");
-  const [startTime, setStartTime] = useState(() => getDefaultTimesForDate(selectedDate).startTime);
-  const [endTime, setEndTime] = useState(() => getDefaultTimesForDate(selectedDate).endTime);
+  const [totalHours, setTotalHours] = useState(existingHours || 50);
+  const [shiftName, setShiftName] = useState(existingShiftName || "Extraction Experienced");
+  const [startTime, setStartTime] = useState(() => existingStartTime || getDefaultTimesForDate(selectedDate).startTime);
+  const [endTime, setEndTime] = useState(() => existingEndTime || getDefaultTimesForDate(selectedDate).endTime);
   const [emailInput, setEmailInput] = useState("");
 
   useEffect(() => {
     const defaults = getDefaultTimesForDate(selectedDate);
-    setStartTime(defaults.startTime);
-    setEndTime(defaults.endTime);
-  }, [selectedDate]);
+    setStartTime(existingStartTime || defaults.startTime);
+    setEndTime(existingEndTime || defaults.endTime);
+    setShiftName(existingShiftName || "Extraction Experienced");
+    setTotalHours(existingHours || 50);
+  }, [selectedDate, existingHours, existingShiftName, existingStartTime, existingEndTime]);
 
   const handleAddEmail = () => {
     if (!emailInput.trim()) return;
@@ -70,9 +76,9 @@ export default function AdminReleasePanel({
         <button
           className="btn btn--amber"
           disabled={disabled || totalHours < 1}
-          onClick={() => onRelease({ dateKey: selectedDate, totalHours, shiftName, startTime, endTime })}
+          onClick={() => onRelease({ dateKey: selectedDate, totalHours, shiftName, startTime, endTime, mode: existingHours > 0 ? "adjust" : "release" })}
         >
-          Release {totalHours}h
+          {existingHours > 0 ? `Adjust to ${totalHours}h` : `Release ${totalHours}h`}
         </button>
       </div>
 

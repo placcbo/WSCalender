@@ -1,5 +1,5 @@
 import {
-  BOOKING_STATUS,
+  DAY_START_HOUR,
   SLOTS_PER_DAY,
   formatDayNumber,
   formatWeekdayShort,
@@ -59,7 +59,7 @@ export default function WeekGrid({
               {(isAdmin || dayInfo.blocks.length > 0) && (
                 <div className="week-grid-day-summary">
                   <strong>{isAdmin ? `${dayInfo.summary.releasedHours}h released` : "8h block"}</strong>
-                  <span>{dayInfo.summary.reservedHours}h reserved</span>
+                  <span>{dayInfo.summary.reservedHours}h reserved • {dayInfo.summary.remainingHours}h remaining</span>
                 </div>
               )}
 
@@ -71,8 +71,9 @@ export default function WeekGrid({
                 const hasMyReservation = !isAdmin && block.myHours > 0;
                 const isUserReserved = !isAdmin && (hasMyReservation || block.remainingHours <= 0);
 
-                const top = block.startSlot * ROW_HEIGHT;
-                const height = Math.max(ROW_HEIGHT, block.totalHours * ROW_HEIGHT);
+                const startHour = Number.parseInt((block.startTime ?? "08:00").split(":")[0], 10);
+                const top = Math.max(0, (startHour - DAY_START_HOUR) * ROW_HEIGHT);
+                const height = Math.max(ROW_HEIGHT, Math.max(1, Number(block.totalHours) || 1) * ROW_HEIGHT);
                 const reservedPct = block.totalHours > 0 ? Math.min(100, (block.myHours / block.totalHours) * 100) : 0;
                 const isSelected = pendingClaim?.blockId === block.id;
                 const isNewOpportunity = block.remainingHours > 0;

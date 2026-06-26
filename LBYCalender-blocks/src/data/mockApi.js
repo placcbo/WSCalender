@@ -14,9 +14,10 @@ import {
   BOOKING_STATUS,
   deriveBookingStatus,
   slotIndexToLabel,
-} from "./schedule";
+  MAX_HOURS_PER_DAY,
+} from "./schedule.js";
 
-const NETWORK_DELAY_MS = 220;
+const NETWORK_DELAY_MS = 20;
 
 function delay(value) {
   return new Promise((resolve) => setTimeout(() => resolve(value), NETWORK_DELAY_MS));
@@ -210,6 +211,39 @@ export function releaseHours(dateKey, totalHours, blockSize, startSlot = 0, shif
   return delay({ ok: true, created });
 }
 
+export function adjustReleasedHours(dateKey, totalHours, blockSize = 8, startSlot = 0, shiftName = "Extraction Experienced", startTime = "08:00", endTime = "17:00", workType = "Extraction") {
+  const existing = releaseBlocks.get(dateKey) ?? [];
+  const normalizedTotal = Math.max(1, Number(totalHours) || 1);
+  const normalizedBlockSize = Math.max(1, Number(blockSize) || 1);
+  const existingReserved = existing.reduce((sum, block) => sum + reservedForBlock(block.id), 0);
+  const nextTotal = Math.max(0, normalizedTotal);
+  const delta = nextTotal - existing.reduce((sum, block) => sum + block.totalHours, 0);
+
+  if (delta === 0) {
+    return delay({ ok: true, created: [], updated: existing });
+  }
+
+  if (delta < 0) {
+    const removable = Math.min(existingReserved, Math.abs(delta));
+    if (removable > 0) {
+      return delay({ ok: false, error: "Can't reduce released hours while there are active reservations." });
+    }
+  }
+
+  const current = releaseBlocks.get(dateKey) ?? [];
+  const currentTotal = current.reduce((sum, block) => sum + block.totalHours, 0);
+  const newBlocks = [];
+  if (currentTotal > 0) {
+    current.forEach((block) => {
+      newBlocks.push({ ...block, totalHours: block.totalHours });
+    });
+  }
+
+  releaseBlocks.set(dateKey, []);
+  const created = addRelease(dateKey, nextTotal, normalizedBlockSize, Number(startSlot) || 0, shiftName, startTime, endTime, workType);
+  return delay({ ok: true, created, updated: created });
+}
+
 export function revokeBlock(dateKey, blockId) {
   if (reservedForBlock(blockId) > 0) {
     return delay({ ok: false, error: "This block already has reservations." });
@@ -253,14 +287,30 @@ export function reserveHours(dateKey, blockId, hours, userId, maxHoursPerDay) {
   return delay({ ok: true, created });
 }
 
-export function updateBookingHours(bookingId, hours, userId) {
+export function updateBookingHours(bookingId, hours, userId, maxHoursPerDay = MAX_HOURS_PER_DAY) {
   const target = bookings.find((booking) => booking.id === bookingId);
   if (!target) return delay({ ok: false, error: "Booking not found." });
   if (target.userId !== userId) return delay({ ok: false, error: "Not your booking." });
 
-  const normalizedHours = Math.max(1, Number(hours) || 1);
-  if (normalizedHours > target.hours) {
-    return delay({ ok: false, error: `You already have ${target.hours}h reserved.` });
+  const normalizedHours = Number(hours);
+  if (!Number.isFinite(normalizedHours) || normalizedHours < 0) {
+    return delay({ ok: false, error: "Hours must be 0 or more." });
+  }
+
+  if (normalizedHours === 0) {
+    bookings = bookings.filter((booking) => booking.id !== bookingId);
+    return delay({ ok: true, cancelled: true, booking: target });
+  }
+
+  const block = (releaseBlocks.get(target.dateKey) ?? []).find((candidate) => candidate.id === target.blockId);
+  const otherBookingsOnBlock = bookings.filter((booking) => booking.dateKey === target.dateKey && booking.blockId === target.blockId && booking.id !== bookingId);
+  const otherUserHoursOnDay = bookings.filter((booking) => booking.dateKey === target.dateKey && booking.userId === userId && booking.id !== bookingId).reduce((sum, booking) => sum + bookingHours(booking), 0);
+  const blockCapacityRemaining = block ? Math.max(0, block.totalHours - otherBookingsOnBlock.reduce((sum, booking) => sum + bookingHours(booking), 0)) : Number.POSITIVE_INFINITY;
+  const dailyCapacityRemaining = Math.max(0, maxHoursPerDay - otherUserHoursOnDay);
+  const maxAllowedHours = Math.min(blockCapacityRemaining, dailyCapacityRemaining);
+
+  if (normalizedHours > maxAllowedHours) {
+    return delay({ ok: false, error: `Only ${maxAllowedHours}h are available for this booking.` });
   }
 
   if (normalizedHours === target.hours) {
