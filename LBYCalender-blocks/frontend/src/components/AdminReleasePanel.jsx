@@ -33,6 +33,11 @@ export default function AdminReleasePanel({
 }) {
   const allWorkTypes = [...new Set([...WORK_TYPES, ...customWorkTypes])];
 
+  useEffect(() => {
+    console.log("AdminReleasePanel received customWorkTypes:", customWorkTypes);
+    console.log("allWorkTypes:", allWorkTypes);
+  }, [customWorkTypes]);
+
   const [totalHours, setTotalHours]           = useState(50);
   const [maxHoursPerUser, setMaxHoursPerUser] = useState(8);
   const [workType, setWorkType]               = useState(allWorkTypes[0] ?? "");
@@ -48,6 +53,21 @@ export default function AdminReleasePanel({
     if (!allWorkTypes.includes(accessWorkType)) setAccessWorkType(allWorkTypes[0] ?? "");
     if (!isCustomProject && !allWorkTypes.includes(workType)) setWorkType(allWorkTypes[0] ?? "");
   }, [allWorkTypes.join(","), accessWorkType, isCustomProject, workType]);
+
+  // When customWorkTypes updates (from backend), ensure a project is always selected
+  useEffect(() => {
+    if (customWorkTypes.length > 0) {
+      // If a project is highlighted (just added), select it
+      if (highlightedProject && customWorkTypes.includes(highlightedProject)) {
+        setWorkType(highlightedProject);
+        setIsCustomProject(false);
+      } else if (isCustomProject || !allWorkTypes.includes(workType)) {
+        // Otherwise, if we're in custom mode or workType is invalid, select the first project
+        setWorkType(customWorkTypes[0]);
+        setIsCustomProject(false);
+      }
+    }
+  }, [customWorkTypes.join(","), highlightedProject, isCustomProject, workType]);
 
   useEffect(() => {
     const defaults = getDefaultTimesForDate(selectedDate);
@@ -88,9 +108,10 @@ export default function AdminReleasePanel({
   const handleAddCustomProject = () => {
     const name = customProjectName.trim();
     if (!name) return;
+    // Clear the input first
+    setCustomProjectName("");
+    // Call backend to add project - don't set workType yet, let it be set by the fetch response
     onAddWorkType?.(name);
-    setWorkType(name);
-    setIsCustomProject(false);
   };
 
   const canRelease = !disabled && totalHours >= 1 && effectiveWorkType.length > 0;

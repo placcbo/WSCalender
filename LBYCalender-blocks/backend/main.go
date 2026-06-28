@@ -59,6 +59,7 @@ type Store struct {
 	mu            sync.Mutex
 	releaseBlocks map[string][]Block
 	bookings      []Booking
+	projects      map[string][]string // Projects per admin: { adminId: [projectNames...] }
 	nextBlockID   int
 	nextBookingID int
 }
@@ -66,6 +67,7 @@ type Store struct {
 var store = &Store{
 	releaseBlocks: make(map[string][]Block),
 	bookings:      make([]Booking, 0),
+	projects:      make(map[string][]string),
 	nextBlockID:   100,
 	nextBookingID: 100,
 }
@@ -728,6 +730,61 @@ func handleCancelBooking(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// GET /api/projects?adminId=xxx returns projects for that admin
+func handleGetProjects(w http.ResponseWriter, r *http.Request) {
+	adminId := r.URL.Query().Get("adminId")
+	if adminId == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "adminId required"})
+		return
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	projects := store.projects[adminId]
+	if projects == nil {
+		projects = []string{}
+	}
+	writeJSON(w, http.StatusOK, projects)
+}
+
+// POST /api/projects adds a new project for the admin
+func handleAddProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AdminId string `json:"adminId"`
+		Name    string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Invalid request"})
+		return
+	}
+	if req.AdminId == "" || req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "adminId and name required"})
+		return
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	// Check if project already exists for this admin
+	projects := store.projects[req.AdminId]
+	for _, p := range projects {
+		if p == req.Name {
+			writeJSON(w, http.StatusOK, projects)
+			return
+		}
+	}
+	store.projects[req.AdminId] = append(projects, req.Name)
+	writeJSON(w, http.StatusOK, store.projects[req.AdminId])
+}
+
+// Router for projects endpoint - dispatches GET/POST
+func handleProjectsRouter(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		handleGetProjects(w, r)
+	} else if r.Method == http.MethodPost {
+		handleAddProject(w, r)
+	} else {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "Method not allowed"})
+	}
+}
+
 func main() {
 	http.HandleFunc("/api/week-range", withCORS(handleWeekRange))
 	http.HandleFunc("/api/week-schedule", withCORS(handleWeekSchedule))
@@ -740,6 +797,7 @@ func main() {
 	http.HandleFunc("/api/reserve-hours", withCORS(handleReserveHours))
 	http.HandleFunc("/api/update-booking-hours", withCORS(handleUpdateBookingHours))
 	http.HandleFunc("/api/cancel-booking", withCORS(handleCancelBooking))
+	http.HandleFunc("/api/projects", withCORS(handleProjectsRouter))
 
 	addr := ":8080"
 	log.Printf("Go backend listening on %s", addr)

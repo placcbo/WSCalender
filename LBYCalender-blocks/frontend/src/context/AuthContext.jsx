@@ -95,10 +95,16 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   // { [workType]: string[] of normalized emails granted EXTRA access to that workType }
-  // Keep access grants in-memory only so that all state is lost when the
-  // backend (or the app) is stopped — do not persist to localStorage.
-  const [workTypeAccess, setWorkTypeAccess] = useState(() => ({}));
-  // Admin-created custom project names kept in-memory only (no localStorage).
+  // Persisted to localStorage so projects and access grants survive logout/login.
+  const [workTypeAccess, setWorkTypeAccess] = useState(() => {
+    try {
+      const stored = localStorage.getItem("workTypeAccess");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+  // Admin-created custom project names fetched from backend
   const [customWorkTypes, setCustomWorkTypes] = useState(() => []);
 
   const resolveGrantedWorkTypes = useCallback(
@@ -127,6 +133,52 @@ export function AuthProvider({ children }) {
     });
   }, [resolveGrantedWorkTypes, user?.email]);
 
+  // Persist workTypeAccess to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem("workTypeAccess", JSON.stringify(workTypeAccess));
+    } catch (e) {
+      console.error("Failed to persist workTypeAccess to localStorage", e);
+    }
+  }, [workTypeAccess]);
+
+  // Function to fetch projects from backend
+  const fetchProjectsFromBackend = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const res = await fetch(`http://localhost:8080/api/projects?adminId=${user.id}`);
+      if (res.ok) {
+        const projects = await res.json();
+        setCustomWorkTypes(projects || []);
+        return projects || [];
+      }
+    } catch (err) {
+      console.error("Failed to fetch projects from backend", err);
+    }
+    return [];
+  }, [user?.id]);
+
+  // Fetch projects from backend when user logs in
+  useEffect(() => {
+    if (!user?.id) {
+      setCustomWorkTypes([]);
+      return;
+    }
+    const doFetch = async () => {
+      try {
+        const res = await fetch(`http://localhost:8080/api/projects?adminId=${user.id}`);
+        if (res.ok) {
+          const projects = await res.json();
+          console.log("Fetched projects for admin:", user.id, projects);
+          setCustomWorkTypes(projects || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch projects from backend", err);
+      }
+    };
+    doFetch();
+  }, [user?.id]);
+
   /** Grant a user (by email) access to an additional work type/project. */
   const grantWorkTypeAccess = useCallback((email, workType) => {
     const normalizedEmail = normalizeEmail(email);
@@ -148,11 +200,29 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
-  /** Manage custom work types created by admins. Kept in-memory so they vanish on backend restart. */
+  /** Add custom work type for current admin - sends to backend */
   const addCustomWorkType = useCallback((name) => {
-    if (!name) return;
-    setCustomWorkTypes((prev) => (prev.includes(name) ? prev : [...prev, name]));
-  }, []);
+    if (!name || !user?.id) {
+      console.warn("Cannot add project: name or user.id missing", { name, userId: user?.id });
+      return;
+    }
+    fetch("http://localhost:8080/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminId: user.id, name })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(projects => {
+        console.log("Project added, backend returned:", projects);
+        setCustomWorkTypes(projects || []);
+      })
+      .catch(err => {
+        console.error("Failed to add project:", err);
+      });
+  }, [user?.id]);
 
   const removeCustomWorkType = useCallback((name) => {
     setCustomWorkTypes((prev) => prev.filter((n) => n !== name));

@@ -28,7 +28,7 @@ const todayKey = toDateKey(todayDate);
 // no longer exist on the server.
 
 export default function BoardPage() {
-  const { user, logout, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess } = useAuth();
+  const { user, logout, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess, customWorkTypes, addCustomWorkType } = useAuth();
   const isAdmin = user.role === "admin";
   // Bug fix (Bug 2): admins have no defaultWorkTypes so grantedWorkTypes is
   // undefined → was passed as [] to fetchWeekSchedule, which (after fixing
@@ -50,8 +50,6 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState(null);
-  // Admin-created project names beyond the built-in WORK_TYPES
-  const [customWorkTypes, setCustomWorkTypes] = useState([]);
   const [adminProjectFilter, setAdminProjectFilter] = useState(null);
   const [highlightedProject, setHighlightedProject] = useState(null);
 
@@ -91,7 +89,6 @@ export default function BoardPage() {
       setWeekData({});
       setSummary({ reportedHours: 0, reservedHours: 0 });
       setCommittedHoursByWorkType({});
-      setCustomWorkTypes([]);
       setBanner({ kind: "error", text: "Backend unreachable — cleared local state." });
     } finally {
       setLoading(false);
@@ -103,10 +100,7 @@ export default function BoardPage() {
   }, [anchorDate, loadWeek]);
 
   const handleAddWorkType = useCallback((name) => {
-    setCustomWorkTypes((prev) => {
-      if (prev.includes(name)) return prev;
-      return [...prev, name];
-    });
+    addCustomWorkType(name);
     // Auto-select the project for admin quick-access and refresh insights
     setAdminProjectFilter(name);
     // Temporarily highlight the newly created tab
