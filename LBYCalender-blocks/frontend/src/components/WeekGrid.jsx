@@ -1,6 +1,7 @@
 import {
   DAY_START_HOUR,
   SLOTS_PER_DAY,
+  assignBlockLanes,
   formatDayNumber,
   formatWeekdayShort,
   slotIndexToLabel,
@@ -52,6 +53,15 @@ export default function WeekGrid({
         {dateKeys.map((dateKey) => {
           const dayInfo = weekData[dateKey] ?? { blocks: [], summary: { releasedHours: 0, reservedHours: 0, remainingHours: 0 } };
         const filteredBlocks = projectFilter ? dayInfo.blocks.filter((block) => block.workType === projectFilter) : dayInfo.blocks;
+        // Only blocks that will actually be rendered as buttons should
+        // compete for lanes — a block hidden by the layer toggles (for
+        // non-admins) shouldn't reserve width that a visible block could use.
+        const renderableBlocks = filteredBlocks.filter((block) => {
+          const showOpen = visibleLayers.has("open") && block.remainingHours > 0;
+          const showReserved = visibleLayers.has("reserved") && block.reservedHours > 0;
+          return showOpen || showReserved || isAdmin;
+        });
+        const laneLayout = assignBlockLanes(renderableBlocks);
         const daySummary = projectFilter
           ? filteredBlocks.reduce(
               (summary, block) => {
@@ -71,9 +81,10 @@ export default function WeekGrid({
 
               {(isAdmin || filteredBlocks.length > 0) && (
                 <div className="week-grid-day-summary">
-                  <strong>{isAdmin ? `${daySummary.releasedHours}h released` : "8h block"}</strong>
+                  <strong>{daySummary.releasedHours}h released</strong>
                   <span>
-                    {isAdmin ? `${daySummary.reservedHours}h reserved • ${daySummary.remainingHours}h remaining` : `${dayInfo.summary.reservedHours}h reserved`}
+                    {daySummary.reservedHours}h reserved
+                    {isAdmin ? ` • ${daySummary.remainingHours}h remaining` : ""}
                   </span>
                 </div>
               )}
@@ -93,6 +104,18 @@ export default function WeekGrid({
                 const isSelected = pendingClaim?.blockId === block.id;
                 const isNewOpportunity = block.remainingHours > 0;
 
+                // Side-by-side placement: blocks that overlap in time (e.g.
+                // from two different admins/projects) split the column width
+                // across lanes instead of stacking on top of one another.
+                // Outer edges keep the original 6px gutter; lanes are
+                // separated from each other by a 4px gap (half on each side).
+                const { lane, laneCount } = laneLayout.get(block.id) ?? { lane: 0, laneCount: 1 };
+                const GUTTER = 6;
+                const LANE_GAP = 4;
+                const totalGutters = GUTTER * 2 + LANE_GAP * (laneCount - 1);
+                const laneWidth = `calc((100% - ${totalGutters}px) / ${laneCount})`;
+                const laneLeft = `calc(${GUTTER}px + ${lane} * (${laneWidth} + ${LANE_GAP}px))`;
+
                 return (
                   <button
                     key={block.id}
@@ -105,7 +128,13 @@ export default function WeekGrid({
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    style={{ top, height }}
+                    style={{
+                      top,
+                      height,
+                      left: laneLeft,
+                      width: laneWidth,
+                      right: "auto",
+                    }}
                     data-work-type={block.workType}
                     disabled={disabled || (!isAdmin && (!block.myHours && block.remainingHours <= 0))}
                     onClick={() => onSelectBlock(dateKey, block)}
@@ -113,7 +142,7 @@ export default function WeekGrid({
                     <span className="calendar-capacity-fill" style={{ height: `${reservedPct}%` }} />
                     <span className="calendar-capacity-content">
                       <span className="calendar-capacity-title-row">
-                        <span className="calendar-capacity-title">{block.shiftName || "Hubdoc"}</span>
+                        <span className="calendar-capacity-title">{block.shiftName || block.workType || "Shift"}</span>
                         {block.workType && <span className="calendar-capacity-project-chip">{block.workType}</span>}
                       </span>
                       {isAdmin && <span className="calendar-capacity-admin-hint">Tap to reduce</span>}

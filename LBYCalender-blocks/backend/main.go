@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -756,21 +757,25 @@ func handleAddProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Invalid request"})
 		return
 	}
-	if req.AdminId == "" || req.Name == "" {
+	name := strings.TrimSpace(req.Name)
+	if req.AdminId == "" || name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "adminId and name required"})
 		return
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	// Check if project already exists for this admin
+	// Check if project already exists for this admin. Compared
+	// case-insensitively so "hubdoc" and "Hubdoc" are treated as the same
+	// project rather than silently creating a duplicate; the existing entry's
+	// original casing is kept since blocks already reference that string.
 	projects := store.projects[req.AdminId]
 	for _, p := range projects {
-		if p == req.Name {
+		if strings.EqualFold(p, name) {
 			writeJSON(w, http.StatusOK, projects)
 			return
 		}
 	}
-	store.projects[req.AdminId] = append(projects, req.Name)
+	store.projects[req.AdminId] = append(projects, name)
 	writeJSON(w, http.StatusOK, store.projects[req.AdminId])
 }
 

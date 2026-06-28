@@ -22,6 +22,28 @@ function normalizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
+/**
+ * Collapse keys that differ only by case (e.g. "hubdoc" and "Hubdoc") into a
+ * single key, merging their email lists. Whichever casing is encountered
+ * first (object key order) is kept as canonical. This exists to clean up
+ * data that was written before project names were made case-insensitive —
+ * new writes shouldn't produce duplicates in the first place, but this keeps
+ * already-stored data (e.g. in a person's browser localStorage) consistent
+ * too, without requiring them to manually clear it.
+ */
+function mergeCaseInsensitiveKeys(workTypeAccess) {
+  const canonicalKeyByLowerCase = new Map();
+  const merged = {};
+  Object.entries(workTypeAccess).forEach(([workType, emails]) => {
+    const lowerKey = workType.toLowerCase();
+    const canonicalKey = canonicalKeyByLowerCase.get(lowerKey) ?? workType;
+    canonicalKeyByLowerCase.set(lowerKey, canonicalKey);
+    const existing = merged[canonicalKey] ?? [];
+    merged[canonicalKey] = Array.from(new Set([...existing, ...emails]));
+  });
+  return merged;
+}
+
 
 export const WORK_TYPES = [];
 
@@ -99,7 +121,7 @@ export function AuthProvider({ children }) {
   const [workTypeAccess, setWorkTypeAccess] = useState(() => {
     try {
       const stored = localStorage.getItem("workTypeAccess");
-      return stored ? JSON.parse(stored) : {};
+      return stored ? mergeCaseInsensitiveKeys(JSON.parse(stored)) : {};
     } catch {
       return {};
     }
@@ -182,34 +204,45 @@ export function AuthProvider({ children }) {
   /** Grant a user (by email) access to an additional work type/project. */
   const grantWorkTypeAccess = useCallback((email, workType) => {
     const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail || !workType) return;
+    const trimmedWorkType = typeof workType === "string" ? workType.trim() : "";
+    if (!normalizedEmail || !trimmedWorkType) return;
     setWorkTypeAccess((current) => {
-      const existing = current[workType] ?? [];
+      // If a key already exists that only differs by case (e.g. "hubdoc" vs
+      // "Hubdoc"), reuse that key instead of creating a second, duplicate
+      // entry — project names are case-insensitive everywhere else now, so
+      // grants should be too.
+      const existingKey =
+        Object.keys(current).find((key) => key.toLowerCase() === trimmedWorkType.toLowerCase()) ?? trimmedWorkType;
+      const existing = current[existingKey] ?? [];
       if (existing.includes(normalizedEmail)) return current;
-      return { ...current, [workType]: [...existing, normalizedEmail] };
+      return { ...current, [existingKey]: [...existing, normalizedEmail] };
     });
   }, []);
 
   /** Revoke a previously granted (extra) work type from a user. */
   const revokeWorkTypeAccess = useCallback((email, workType) => {
     const normalizedEmail = normalizeEmail(email);
+    const trimmedWorkType = typeof workType === "string" ? workType.trim() : "";
     setWorkTypeAccess((current) => {
-      const existing = current[workType] ?? [];
+      const existingKey = Object.keys(current).find((key) => key.toLowerCase() === trimmedWorkType.toLowerCase());
+      if (!existingKey) return current;
+      const existing = current[existingKey] ?? [];
       if (!existing.includes(normalizedEmail)) return current;
-      return { ...current, [workType]: existing.filter((entry) => entry !== normalizedEmail) };
+      return { ...current, [existingKey]: existing.filter((entry) => entry !== normalizedEmail) };
     });
   }, []);
 
   /** Add custom work type for current admin - sends to backend */
   const addCustomWorkType = useCallback((name) => {
-    if (!name || !user?.id) {
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedName || !user?.id) {
       console.warn("Cannot add project: name or user.id missing", { name, userId: user?.id });
       return;
     }
     fetch("http://localhost:8080/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminId: user.id, name })
+      body: JSON.stringify({ adminId: user.id, name: trimmedName })
     })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -269,7 +302,7 @@ export function AuthProvider({ children }) {
       removeCustomWorkType,
       clearCustomWorkTypes,
     }),
-    [user, isAuthenticating, login, logout, resolveGrantedWorkTypes, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess]
+    [user, isAuthenticating, login, logout, resolveGrantedWorkTypes, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess, customWorkTypes, addCustomWorkType, removeCustomWorkType, clearCustomWorkTypes]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

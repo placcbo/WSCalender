@@ -41,33 +41,29 @@ export default function AdminReleasePanel({
   const [totalHours, setTotalHours]           = useState(50);
   const [maxHoursPerUser, setMaxHoursPerUser] = useState(8);
   const [workType, setWorkType]               = useState(allWorkTypes[0] ?? "");
-  const [isCustomProject, setIsCustomProject] = useState(allWorkTypes.length === 0);
-  const [customProjectName, setCustomProjectName] = useState("");
   const [startTime, setStartTime] = useState(() => getDefaultTimesForDate(selectedDate).startTime);
   const [endTime,   setEndTime]   = useState(() => getDefaultTimesForDate(selectedDate).endTime);
   const [emailInput, setEmailInput]       = useState("");
   const [accessWorkType, setAccessWorkType] = useState(allWorkTypes[0] ?? "");
 
   useEffect(() => {
-    if (allWorkTypes.length === 0) setIsCustomProject(true);
-    if (!allWorkTypes.includes(accessWorkType)) setAccessWorkType(allWorkTypes[0] ?? "");
-    if (!isCustomProject && !allWorkTypes.includes(workType)) setWorkType(allWorkTypes[0] ?? "");
-  }, [allWorkTypes.join(","), accessWorkType, isCustomProject, workType]);
-
-  // When customWorkTypes updates (from backend), ensure a project is always selected
-  useEffect(() => {
-    if (customWorkTypes.length > 0) {
-      // If a project is highlighted (just added), select it
-      if (highlightedProject && customWorkTypes.includes(highlightedProject)) {
-        setWorkType(highlightedProject);
-        setIsCustomProject(false);
-      } else if (isCustomProject || !allWorkTypes.includes(workType)) {
-        // Otherwise, if we're in custom mode or workType is invalid, select the first project
-        setWorkType(customWorkTypes[0]);
-        setIsCustomProject(false);
+    if (allWorkTypes.length === 0) {
+      setWorkType("");
+    } else {
+      // Auto-select first project when they become available
+      if (!workType || !allWorkTypes.includes(workType)) {
+        setWorkType(allWorkTypes[0]);
       }
     }
-  }, [customWorkTypes.join(","), highlightedProject, isCustomProject, workType]);
+    if (!allWorkTypes.includes(accessWorkType)) setAccessWorkType(allWorkTypes[0] ?? "");
+  }, [allWorkTypes.join(",")]);
+
+  // When a new project is highlighted (just created), auto-select it
+  useEffect(() => {
+    if (highlightedProject && customWorkTypes.includes(highlightedProject)) {
+      setWorkType(highlightedProject);
+    }
+  }, [highlightedProject, customWorkTypes.join(",")]);
 
   useEffect(() => {
     const defaults = getDefaultTimesForDate(selectedDate);
@@ -75,7 +71,7 @@ export default function AdminReleasePanel({
     setEndTime(defaults.endTime);
   }, [selectedDate]);
 
-  const effectiveWorkType   = isCustomProject ? customProjectName.trim() : workType;
+  const effectiveWorkType   = workType;
   const projectBlocks       = dateBlocks.filter((b) => b.workType === effectiveWorkType);
   const projectReleased     = projectBlocks.reduce((s, b) => s + b.totalHours, 0);
   const projectClaimed      = projectBlocks.reduce((s, b) => s + (b.reservedHours ?? 0), 0);
@@ -85,33 +81,14 @@ export default function AdminReleasePanel({
     : 0;
 
   useEffect(() => {
-    if (!onProjectFilterChange || isCustomProject) return;
+    if (!onProjectFilterChange || !workType) return;
     onProjectFilterChange(workType || null);
-  }, [isCustomProject, workType, onProjectFilterChange]);
+  }, [workType, onProjectFilterChange]);
 
   const handleAddEmail = () => {
     if (!emailInput.trim()) return;
     onGrantAccess(emailInput, accessWorkType);
     setEmailInput("");
-  };
-
-  const handleProjectChange = (value) => {
-    if (value === "__custom__") {
-      setIsCustomProject(true);
-      setCustomProjectName("");
-    } else {
-      setIsCustomProject(false);
-      setWorkType(value);
-    }
-  };
-
-  const handleAddCustomProject = () => {
-    const name = customProjectName.trim();
-    if (!name) return;
-    // Clear the input first
-    setCustomProjectName("");
-    // Call backend to add project - don't set workType yet, let it be set by the fetch response
-    onAddWorkType?.(name);
   };
 
   const canRelease = !disabled && totalHours >= 1 && effectiveWorkType.length > 0;
@@ -126,64 +103,27 @@ export default function AdminReleasePanel({
           <p className="arp-section-sub">Pick a project and define the shift window made available to workers.</p>
         </div>
 
-        {/* Project tabs */}
-        <div className="arp-project-row">
-          {allWorkTypes.map((wt) => (
-            <button
-              key={wt}
-              type="button"
-              className={
-                "arp-tab" +
-                (wt === effectiveWorkType && !isCustomProject ? " arp-tab--active" : "") +
-                (wt === highlightedProject ? " arp-tab--highlight" : "")
-              }
-              onClick={() => { setIsCustomProject(false); setWorkType(wt); }}
-            >
-              {wt}
-            </button>
-          ))}
-          <button
-            type="button"
-            className={"arp-tab arp-tab--new" + (isCustomProject ? " arp-tab--active" : "")}
-            onClick={() => { setIsCustomProject(true); setCustomProjectName(""); }}
-          >
-            + New project
-          </button>
-        </div>
-
-        {/* Custom project name input */}
-        {isCustomProject && (
-          <div className="arp-custom-row">
-            <input
-              autoFocus
-              className="arp-input"
-              value={customProjectName}
-              onChange={(e) => setCustomProjectName(e.target.value)}
-              placeholder="Project name…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddCustomProject();
-                if (e.key === "Escape") { setIsCustomProject(false); }
+        {/* Project selector */}
+        {allWorkTypes.length === 0 ? (
+          <div className="arp-empty" style={{ marginBottom: "14px" }}>
+            Create a project in "My Projects" first to release capacity.
+          </div>
+        ) : (
+          <div className="arp-project-row">
+            <select
+              className="arp-input arp-select"
+              value={workType || ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setWorkType(e.target.value);
+                }
               }}
-            />
-            <button
-              type="button"
-              className="btn btn--ghost"
-              style={{ padding: "7px 12px", fontSize: "0.8rem" }}
-              onClick={handleAddCustomProject}
-              disabled={!customProjectName.trim()}
             >
-              Add
-            </button>
-            {allWorkTypes.length > 0 && (
-              <button
-                type="button"
-                className="btn btn--ghost"
-                style={{ padding: "7px 10px", fontSize: "0.8rem" }}
-                onClick={() => setIsCustomProject(false)}
-              >
-                ✕
-              </button>
-            )}
+              {!workType && <option value="">Select a project…</option>}
+              {allWorkTypes.map((wt) => (
+                <option key={wt} value={wt}>{wt}</option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -228,11 +168,6 @@ export default function AdminReleasePanel({
             className="btn btn--amber arp-release-btn"
             disabled={!canRelease}
             onClick={() => {
-              if (isCustomProject && effectiveWorkType && !customWorkTypes.includes(effectiveWorkType)) {
-                onAddWorkType?.(effectiveWorkType);
-                setIsCustomProject(false);
-                setWorkType(effectiveWorkType);
-              }
               onRelease({
                 dateKey: selectedDate,
                 totalHours,

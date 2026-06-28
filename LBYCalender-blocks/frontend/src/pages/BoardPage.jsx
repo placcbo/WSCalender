@@ -19,16 +19,14 @@ import CalendarLayers from "../components/CalendarLayers";
 import TimeInsights from "../components/TimeInsights";
 import WeekGrid from "../components/WeekGrid";
 import AdminReleasePanel from "../components/AdminReleasePanel";
+import AdminProjectsAndUsers from "../components/AdminProjectsAndUsers";
+import AdminInsights from "../components/AdminInsights";
 
 const todayDate = new Date();
 const todayKey = toDateKey(todayDate);
-// Custom work types intentionally live in React state only (no localStorage).
-// The Go backend has no DB yet, so projects vanish on restart — persisting
-// names in the browser would leave stale tabs showing projects whose blocks
-// no longer exist on the server.
 
 export default function BoardPage() {
-  const { user, logout, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess, customWorkTypes, addCustomWorkType } = useAuth();
+  const { user, logout, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess, customWorkTypes, addCustomWorkType, clearCustomWorkTypes } = useAuth();
   const isAdmin = user.role === "admin";
   // Bug fix (Bug 2): admins have no defaultWorkTypes so grantedWorkTypes is
   // undefined → was passed as [] to fetchWeekSchedule, which (after fixing
@@ -129,7 +127,7 @@ export default function BoardPage() {
         setWeekData({});
         setSummary({ reportedHours: 0, reservedHours: 0 });
         setCommittedHoursByWorkType({});
-        setCustomWorkTypes([]);
+        clearCustomWorkTypes();
         setBanner({ kind: "error", text: "Backend unreachable — cleared local state." });
         clearInterval(interval);
       }
@@ -189,8 +187,9 @@ export default function BoardPage() {
       const committedForProject = await fetchUserHoursForDay(dateKey, user?.id ?? "", block.workType);
       const existingHours = block.myHours ?? 0;
       if (existingHours > 0) {
+        const blockMaxHours = block.maxHoursPerUser ?? MAX_HOURS_PER_DAY;
         const availableForThisBooking = Math.max(existingHours, (block.remainingHours ?? 0) + existingHours);
-        const dailyAllowance = Math.max(existingHours, MAX_HOURS_PER_DAY - Math.max(0, committedForProject - existingHours));
+        const dailyAllowance = Math.max(existingHours, blockMaxHours - Math.max(0, committedForProject - existingHours));
         const maxHours = Math.min(availableForThisBooking, dailyAllowance);
         setPendingClaim({
           dateKey,
@@ -205,9 +204,10 @@ export default function BoardPage() {
         return;
       }
       if (block.isFull) return;
-      const maxHours = Math.min(block.remainingHours, MAX_HOURS_PER_DAY - committedForProject);
+      const blockMaxHours = block.maxHoursPerUser ?? MAX_HOURS_PER_DAY;
+      const maxHours = Math.min(block.remainingHours, blockMaxHours - committedForProject);
       if (maxHours <= 0) {
-        setBanner({ kind: "error", text: `You're capped at ${MAX_HOURS_PER_DAY}h/day for ${block.workType}.` });
+        setBanner({ kind: "error", text: `You're capped at ${blockMaxHours}h/day for ${block.workType}.` });
         return;
       }
       setPendingClaim({
@@ -218,6 +218,7 @@ export default function BoardPage() {
         existingHours,
         mode: "reserve",
         workType: block.workType,
+        maxHoursPerUser: block.maxHoursPerUser ?? MAX_HOURS_PER_DAY,
       });
     },
     [isAdmin, user?.id]
@@ -242,15 +243,16 @@ export default function BoardPage() {
     setSubmitting(true);
     setBanner(null);
     try {
+      const maxHoursForReservation = pendingClaim.maxHoursPerUser ?? MAX_HOURS_PER_DAY;
       const res =
         pendingClaim.mode === "adjust"
-          ? await updateBookingHours(pendingClaim.bookingId, pendingClaim.hours, user?.id ?? "", MAX_HOURS_PER_DAY)
+          ? await updateBookingHours(pendingClaim.bookingId, pendingClaim.hours, user?.id ?? "", maxHoursForReservation)
           : await reserveHours(
               pendingClaim.dateKey,
               pendingClaim.blockId,
               pendingClaim.hours,
               user?.id ?? "",
-              MAX_HOURS_PER_DAY
+              maxHoursForReservation
             );
       setSubmitting(false);
       if (!res.ok) {
@@ -264,7 +266,7 @@ export default function BoardPage() {
       setWeekData({});
       setSummary({ reportedHours: 0, reservedHours: 0 });
       setCommittedHoursByWorkType({});
-      setCustomWorkTypes([]);
+      clearCustomWorkTypes();
       return;
     }
     setBanner({
@@ -320,7 +322,7 @@ export default function BoardPage() {
       setWeekData({});
       setSummary({ reportedHours: 0, reservedHours: 0 });
       setCommittedHoursByWorkType({});
-      setCustomWorkTypes([]);
+      clearCustomWorkTypes();
       return;
     }
     setBanner({ kind: "success", text: `Updated released capacity to ${adminAdjustTarget.targetHours}h.` });
@@ -346,7 +348,7 @@ export default function BoardPage() {
       setWeekData({});
       setSummary({ reportedHours: 0, reservedHours: 0 });
       setCommittedHoursByWorkType({});
-      setCustomWorkTypes([]);
+      clearCustomWorkTypes();
       return;
     }
     setBanner({ kind: "success", text: "Reservation cancelled." });
@@ -370,7 +372,7 @@ export default function BoardPage() {
         setWeekData({});
         setSummary({ reportedHours: 0, reservedHours: 0 });
         setCommittedHoursByWorkType({});
-        setCustomWorkTypes([]);
+        clearCustomWorkTypes();
         return;
       }
     },
@@ -390,7 +392,7 @@ export default function BoardPage() {
         setWeekData({});
         setSummary({ reportedHours: 0, reservedHours: 0 });
         setCommittedHoursByWorkType({});
-        setCustomWorkTypes([]);
+        clearCustomWorkTypes();
         return;
       }
     },
@@ -434,7 +436,7 @@ export default function BoardPage() {
         setWeekData({});
         setSummary({ reportedHours: 0, reservedHours: 0 });
         setCommittedHoursByWorkType({});
-        setCustomWorkTypes([]);
+        clearCustomWorkTypes();
         return;
       }
       setActiveDate(dateKey);
@@ -578,6 +580,27 @@ export default function BoardPage() {
               dateBlocks={weekData[activeDate]?.blocks ?? []}
             />
           )}
+          
+          {isAdmin && (
+            <AdminProjectsAndUsers
+              adminId={user?.email || "Admin"}
+              projects={customWorkTypes}
+              onAddProject={handleAddWorkType}
+              userAccess={workTypeAccess}
+              onGrantAccess={grantWorkTypeAccess}
+              onRevokeAccess={revokeWorkTypeAccess}
+            />
+          )}
+
+          {isAdmin && (
+            <AdminInsights
+              dateKeys={dateKeys}
+              weekData={weekData}
+              customWorkTypes={customWorkTypes}
+              projectFilter={adminProjectFilter}
+            />
+          )}
+          
           {banner && <div className={`banner banner--${banner.kind}`}>{banner.text}</div>}
 
           {/* ── Admin: adjust released block hours (increase OR decrease) ── */}

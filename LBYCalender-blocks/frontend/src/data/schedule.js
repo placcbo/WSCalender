@@ -124,3 +124,79 @@ export function buildMonthGrid(year, month) {
 export function formatMonthHeading(year, month) {
   return new Date(year, month, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
+
+// ---------------------------------------------------------------------------
+// Block layout
+//
+// A single day can have blocks released by different admins for different
+// projects. A user (or admin) viewing that day may have several of those
+// visible at once, and their time ranges can overlap — e.g. two admins both
+// release an 08:00-16:00 block for their own project. Rendering every block
+// at full column width would make all but the topmost one invisible, so we
+// assign each block a "lane" (classic interval-scheduling / calendar layout):
+// blocks that don't overlap in time can each take full width, while blocks
+// that DO overlap split the available width evenly across however many lanes
+// are needed at that point in time.
+// ---------------------------------------------------------------------------
+
+const ROW_HEIGHT_FOR_LAYOUT = 34;
+
+/**
+ * Returns a Map from block.id -> { lane, laneCount } describing how each
+ * block should be horizontally positioned within its day column.
+ *
+ * `rowHeight` should match whatever pixel height the caller uses per hour
+ * row (defaults to the WeekGrid's ROW_HEIGHT) — it only affects the relative
+ * start/end values used to detect overlap, not the externally visible shape.
+ */
+export function assignBlockLanes(blocks, rowHeight = ROW_HEIGHT_FOR_LAYOUT) {
+  const layout = new Map();
+  if (blocks.length === 0) return layout;
+
+  const withRange = blocks.map((block) => {
+    const startHour = Number.parseInt((block.startTime ?? "08:00").split(":")[0], 10);
+    const start = Math.max(0, (startHour - DAY_START_HOUR) * rowHeight);
+    const span = Math.max(rowHeight, Math.max(1, Number(block.totalHours) || 1) * rowHeight);
+    return { block, start, end: start + span };
+  });
+
+  // Sort by start time so lanes fill left-to-right in chronological order.
+  withRange.sort((a, b) => a.start - b.start || a.end - b.end);
+
+  // Cluster blocks into groups of mutually-overlapping blocks (connected
+  // intervals), then assign lanes within each cluster independently so a
+  // block far away in time doesn't get squeezed by an unrelated overlap.
+  const clusters = [];
+  let current = [];
+  let currentEnd = -Infinity;
+  withRange.forEach((entry) => {
+    if (current.length > 0 && entry.start >= currentEnd) {
+      clusters.push(current);
+      current = [];
+      currentEnd = -Infinity;
+    }
+    current.push(entry);
+    currentEnd = Math.max(currentEnd, entry.end);
+  });
+  if (current.length > 0) clusters.push(current);
+
+  clusters.forEach((cluster) => {
+    const laneEnds = []; // laneEnds[i] = end time currently occupied in lane i
+    cluster.forEach((entry) => {
+      let lane = laneEnds.findIndex((end) => entry.start >= end);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(entry.end);
+      } else {
+        laneEnds[lane] = entry.end;
+      }
+      entry.lane = lane;
+    });
+    const laneCount = laneEnds.length;
+    cluster.forEach((entry) => {
+      layout.set(entry.block.id, { lane: entry.lane, laneCount });
+    });
+  });
+
+  return layout;
+}
