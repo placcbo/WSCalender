@@ -98,6 +98,8 @@ export function AuthProvider({ children }) {
   // Keep access grants in-memory only so that all state is lost when the
   // backend (or the app) is stopped — do not persist to localStorage.
   const [workTypeAccess, setWorkTypeAccess] = useState(() => ({}));
+  // Admin-created custom project names kept in-memory only (no localStorage).
+  const [customWorkTypes, setCustomWorkTypes] = useState(() => []);
 
   const resolveGrantedWorkTypes = useCallback(
     (email, defaultWorkTypes = []) => {
@@ -146,6 +148,18 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
+  /** Manage custom work types created by admins. Kept in-memory so they vanish on backend restart. */
+  const addCustomWorkType = useCallback((name) => {
+    if (!name) return;
+    setCustomWorkTypes((prev) => (prev.includes(name) ? prev : [...prev, name]));
+  }, []);
+
+  const removeCustomWorkType = useCallback((name) => {
+    setCustomWorkTypes((prev) => prev.filter((n) => n !== name));
+  }, []);
+
+  const clearCustomWorkTypes = useCallback(() => setCustomWorkTypes([]), []);
+
   const login = useCallback(
     (accountId) => {
       setIsAuthenticating(true);
@@ -180,6 +194,10 @@ export function AuthProvider({ children }) {
       workTypeAccess,
       grantWorkTypeAccess,
       revokeWorkTypeAccess,
+      customWorkTypes,
+      addCustomWorkType,
+      removeCustomWorkType,
+      clearCustomWorkTypes,
     }),
     [user, isAuthenticating, login, logout, resolveGrantedWorkTypes, workTypeAccess, grantWorkTypeAccess, revokeWorkTypeAccess]
   );

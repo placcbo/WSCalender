@@ -68,25 +68,6 @@ export default function BoardPage() {
     }
   }, [user?.id]);
 
-  const handleAddWorkType = useCallback((name) => {
-    setCustomWorkTypes((prev) => {
-      if (prev.includes(name)) return prev;
-      return [...prev, name];
-    });
-    // Auto-select the project for admin quick-access and refresh insights
-    setAdminProjectFilter(name);
-    // Temporarily highlight the newly created tab
-    setHighlightedProject(name);
-    setTimeout(() => setHighlightedProject(null), 3500);
-    // Refresh current week to reflect the new project in the data view.
-    // Fire-and-forget: loadWeek handles its own errors.
-    loadWeek(anchorDate, true);
-  }, [loadWeek, anchorDate]);
-
-  const handleAdminProjectFilterChange = useCallback((project) => {
-    setAdminProjectFilter(project || null);
-  }, []);
-
   // Bug fix (Bug 5): grantedWorkTypes is an array — a new array reference on
   // every render caused loadWeek to be recreated every render, which triggered
   // the useEffect below on every render (infinite loop). We stabilise it with
@@ -120,6 +101,25 @@ export default function BoardPage() {
   useEffect(() => {
     loadWeek(anchorDate, true);
   }, [anchorDate, loadWeek]);
+
+  const handleAddWorkType = useCallback((name) => {
+    setCustomWorkTypes((prev) => {
+      if (prev.includes(name)) return prev;
+      return [...prev, name];
+    });
+    // Auto-select the project for admin quick-access and refresh insights
+    setAdminProjectFilter(name);
+    // Temporarily highlight the newly created tab
+    setHighlightedProject(name);
+    setTimeout(() => setHighlightedProject(null), 3500);
+    // Refresh current week to reflect the new project in the data view.
+    // Fire-and-forget: loadWeek handles its own errors.
+    loadWeek(anchorDate, true);
+  }, [loadWeek, anchorDate]);
+
+  const handleAdminProjectFilterChange = useCallback((project) => {
+    setAdminProjectFilter(project || null);
+  }, []);
 
   // Lightweight backend liveness probe: if the backend becomes unreachable
   // we proactively clear all volatile client state to ensure nothing persists
